@@ -320,13 +320,20 @@ export default function App() {
       // Metinlerin render edilmesi için kısa bir bekleme
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // Element genişliğini tam kullan
-      const elementWidth = Math.max(element.offsetWidth, element.scrollWidth, 794); // 210mm = ~794px (96 DPI)
+      // Element genişliğini tam kullan - 210mm = 794px (96 DPI'da)
+      // Gerçek genişliği al, eğer daha küçükse 794px'e zorla
+      const computedStyle = window.getComputedStyle(element);
+      const elementWidth = Math.max(
+        element.offsetWidth || 794,
+        element.scrollWidth || 794,
+        parseInt(computedStyle.width) || 794,
+        794 // Minimum 210mm
+      );
       const elementHeight = element.scrollHeight || element.offsetHeight;
 
       // HTML'i canvas'a dönüştür - metinleri yakalamak için optimize edilmiş ayarlar
       const canvas = await html2canvas(element, {
-        scale: 3, // Daha yüksek çözünürlük için scale artırıldı
+        scale: 2, // Scale'i 2'ye düşürdük (3 çok büyük oluyordu)
         useCORS: true,
         allowTaint: false,
         logging: false,
@@ -335,12 +342,65 @@ export default function App() {
         height: elementHeight,
         windowWidth: elementWidth,
         windowHeight: elementHeight,
-        foreignObjectRendering: false, // Metin render kalitesi için
+        foreignObjectRendering: false,
         onclone: (clonedDoc) => {
+          // Ana container'ı bul ve genişliğini zorla
+          const allDivs = clonedDoc.body.querySelectorAll('div');
+          const clonedElement = Array.from(allDivs).find(
+            el => {
+              const className = el.className || '';
+              return className.includes('w-[210mm]') || 
+                     (el.offsetWidth > 700 && el.offsetWidth < 900);
+            }
+          );
+          
+          if (clonedElement) {
+            clonedElement.style.width = `${elementWidth}px`;
+            clonedElement.style.maxWidth = `${elementWidth}px`;
+            clonedElement.style.minWidth = `${elementWidth}px`;
+            clonedElement.style.boxSizing = 'border-box';
+          }
+          
+          // İç container'ı da genişliğe zorla
+          const innerContainers = clonedDoc.body.querySelectorAll('div');
+          innerContainers.forEach(container => {
+            const className = container.className || '';
+            if (className.includes('p-[2mm]') || className.includes('p-[')) {
+              container.style.width = '100%';
+              container.style.maxWidth = '100%';
+              container.style.boxSizing = 'border-box';
+            }
+          });
+          
+          // Sütun container'larını da kontrol et ve genişliklerini zorla
+          const columnContainers = clonedDoc.body.querySelectorAll('div[class*="w-1/"]');
+          columnContainers.forEach(container => {
+            container.style.boxSizing = 'border-box';
+            const className = container.className || '';
+            if (className.includes('w-1/2')) {
+              container.style.width = '50%';
+              container.style.flexShrink = '0';
+            } else if (className.includes('w-1/3')) {
+              container.style.width = '33.333%';
+              container.style.flexShrink = '0';
+            }
+          });
+          
+          // Ana sütun container'ını da kontrol et
+          const mainColumnContainer = Array.from(clonedDoc.body.querySelectorAll('div')).find(
+            el => {
+              const className = el.className || '';
+              return className.includes('flex-1 flex relative');
+            }
+          );
+          if (mainColumnContainer) {
+            mainColumnContainer.style.width = '100%';
+            mainColumnContainer.style.boxSizing = 'border-box';
+          }
+          
           // Metin içeren elementleri bul ve görünür yap
           const textElements = clonedDoc.body.querySelectorAll('.pdf-text-content');
           textElements.forEach(el => {
-            // Elementi kesinlikle görünür yap
             el.style.display = 'block';
             el.style.visibility = 'visible';
             el.style.opacity = '1';
@@ -377,19 +437,19 @@ export default function App() {
       const imgWidth = canvas.width;
       const imgHeight = canvas.height;
       
-      // Piksel'i mm'ye dönüştür (scale 3 kullanıldığı için)
-      // 1mm = (96 DPI * scale) / 25.4mm = (96 * 3) / 25.4 ≈ 11.339 pixels
-      const pixelsPerMM = (96 * 3) / 25.4;
+      // Piksel'i mm'ye dönüştür (scale 2 kullanıldığı için)
+      // 1mm = (96 DPI * scale) / 25.4mm = (96 * 2) / 25.4 ≈ 7.559 pixels
+      const pixelsPerMM = (96 * 2) / 25.4;
       
       // Canvas genişliğini mm'ye çevir
       const imgWidthInMM = imgWidth / pixelsPerMM;
       const imgHeightInMM = imgHeight / pixelsPerMM;
       
       // Görüntüyü A4 sayfa genişliğine tam sığdır (margin olmadan)
-      // İçerik zaten 210mm genişliğinde olmalı, direkt ekle
+      // Element genişliği zaten 210mm olmalı, oranı hesapla
       const ratio = pdfWidth / imgWidthInMM;
       const scaledHeightInMM = imgHeightInMM * ratio;
-      const scaledWidthInMM = pdfWidth; // Tam genişlik kullan
+      const scaledWidthInMM = pdfWidth; // Tam genişlik kullan (210mm)
       
       const pdf = new jsPDF('p', 'mm', 'a4');
       
@@ -862,7 +922,8 @@ Mehmet Can	Trigonometri"
         print:block print:absolute print:left-0 print:top-0 print:m-0 print:p-0 print:w-full print:bg-white
         w-[210mm] min-h-[297mm] mx-auto bg-white shadow-2xl mb-12 origin-top
         print:shadow-none print:w-[210mm] print:min-h-[297mm]
-      `}>
+      `}
+        style={{ width: '210mm', maxWidth: '210mm', minWidth: '210mm', boxSizing: 'border-box' }}>
         {selectedStudentId && previewQuestions.length > 0 && (
           <div className="p-[2mm] font-sans h-full flex flex-col bg-white relative w-full box-border" style={{ width: '100%', maxWidth: '100%' }}>
             
@@ -927,7 +988,7 @@ Mehmet Can	Trigonometri"
               ) : design.columns === 2 ? (
                 // İKİ SÜTUN - Her sütun kendi içinde dikey doldurulur
                 <>
-                  <div className="w-1/2 pr-[1mm] flex flex-col gap-4 box-border flex-shrink-0">
+                  <div className="w-1/2 pr-[2mm] flex flex-col gap-4 box-border flex-shrink-0" style={{ width: '50%', boxSizing: 'border-box' }}>
                     {previewQuestions
                       .map((q, index) => index)
                       .filter((index) => index % 4 < 2)
@@ -945,7 +1006,7 @@ Mehmet Can	Trigonometri"
                         );
                       })}
                   </div>
-                  <div className="w-1/2 pl-[1mm] flex flex-col gap-4 box-border flex-shrink-0">
+                  <div className="w-1/2 pl-[2mm] flex flex-col gap-4 box-border flex-shrink-0" style={{ width: '50%', boxSizing: 'border-box' }}>
                     {previewQuestions
                       .map((q, index) => index)
                       .filter((index) => index % 4 >= 2)
@@ -967,7 +1028,7 @@ Mehmet Can	Trigonometri"
               ) : (
                 // ÜÇ SÜTUN - Her sütun kendi içinde dikey doldurulur
                 <>
-                  <div className="w-1/3 pr-[0.5mm] flex flex-col gap-4 box-border flex-shrink-0">
+                  <div className="w-1/3 pr-[1mm] flex flex-col gap-4 box-border flex-shrink-0" style={{ width: '33.333%', boxSizing: 'border-box' }}>
                     {previewQuestions
                       .map((q, index) => index)
                       .filter((index) => index % 9 < 3)
@@ -985,7 +1046,7 @@ Mehmet Can	Trigonometri"
                         );
                       })}
                   </div>
-                  <div className="w-1/3 px-[0.5mm] flex flex-col gap-4 box-border flex-shrink-0">
+                  <div className="w-1/3 px-[1mm] flex flex-col gap-4 box-border flex-shrink-0" style={{ width: '33.333%', boxSizing: 'border-box' }}>
                     {previewQuestions
                       .map((q, index) => index)
                       .filter((index) => index % 9 >= 3 && index % 9 < 6)
@@ -1003,7 +1064,7 @@ Mehmet Can	Trigonometri"
                         );
                       })}
                   </div>
-                  <div className="w-1/3 pl-[0.5mm] flex flex-col gap-4 box-border flex-shrink-0">
+                  <div className="w-1/3 pl-[1mm] flex flex-col gap-4 box-border flex-shrink-0" style={{ width: '33.333%', boxSizing: 'border-box' }}>
                     {previewQuestions
                       .map((q, index) => index)
                       .filter((index) => index % 9 >= 6)
