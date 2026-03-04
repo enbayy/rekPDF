@@ -158,6 +158,14 @@ export default function App() {
     }
   };
 
+  // Metin dosyası okuma
+  const readTextFile = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsText(file, 'UTF-8');
+  });
+
   const handleImageUpload = async (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
@@ -167,45 +175,70 @@ export default function App() {
     
     const newImages = [];
     
-    for (const file of files) {
-      try {
-        const dataUrl = await readFileAsDataURL(file);
-        const compressedSrc = await compressImage(dataUrl);
+    try {
+      for (const file of files) {
+        try {
+          const fileExtension = file.name.split('.').pop().toLowerCase();
+          
+          // Txt dosyası ise direkt metin olarak oku
+          if (fileExtension === 'txt') {
+            const textContent = await readTextFile(file);
+            const nameWithoutExt = file.name.split('.').slice(0, -1).join('.');
+            const topicGuess = nameWithoutExt.split(/[-_]/)[0].trim();
+            const newId = Math.random().toString(36).substr(2, 9);
 
-        // LocalStorage boyut sınırı kontrolü (yaklaşık 5MB per item limit)
-        if (compressedSrc.length > 1048400) {
-          throw new Error(`"${file.name}" boyutu çok büyük. Lütfen daha düşük çözünürlüklü bir görsel seçin.`);
+            newImages.push({
+              id: newId,
+              filename: file.name,
+              topic: topicGuess,
+              src: '', // Txt dosyaları için görsel yok
+              text: textContent,
+              createdAt: Date.now()
+            });
+          } else {
+            // Görsel dosyası ise normal işlem
+            const dataUrl = await readFileAsDataURL(file);
+            const compressedSrc = await compressImage(dataUrl);
+
+            // LocalStorage boyut sınırı kontrolü (yaklaşık 5MB per item limit)
+            if (compressedSrc.length > 1048400) {
+              throw new Error(`"${file.name}" boyutu çok büyük. Lütfen daha düşük çözünürlüklü bir görsel seçin.`);
+            }
+
+            const nameWithoutExt = file.name.split('.').slice(0, -1).join('.');
+            const topicGuess = nameWithoutExt.split(/[-_]/)[0].trim();
+            const newId = Math.random().toString(36).substr(2, 9);
+
+            // OCR ile metin çıkar
+            const extractedText = await extractTextFromImage(dataUrl);
+
+            newImages.push({
+              id: newId,
+              filename: file.name,
+              topic: topicGuess,
+              src: compressedSrc,
+              text: extractedText, // OCR'dan çıkarılan metin
+              createdAt: Date.now()
+            });
+          }
+        } catch (error) {
+          console.error("Dosya yükleme hatası:", error);
+          setUploadError(prev => prev ? `${prev}\n${file.name}: ${error.message}` : `${file.name}: ${error.message}`);
         }
-
-        const nameWithoutExt = file.name.split('.').slice(0, -1).join('.');
-        const topicGuess = nameWithoutExt.split(/[-_]/)[0].trim();
-        const newId = Math.random().toString(36).substr(2, 9);
-
-        // OCR ile metin çıkar
-        const extractedText = await extractTextFromImage(dataUrl);
-
-        newImages.push({
-          id: newId,
-          filename: file.name,
-          topic: topicGuess,
-          src: compressedSrc,
-          text: extractedText, // OCR'dan çıkarılan metin
-          createdAt: Date.now()
-        });
-      } catch (error) {
-        console.error("Resim yükleme/sıkıştırma hatası:", error);
-        setUploadError(error.message);
       }
+      
+      // Tüm yeni resimleri state'e ekle
+      if (newImages.length > 0) {
+        setImages(prev => [...newImages, ...prev]);
+      }
+    } catch (error) {
+      console.error("Genel yükleme hatası:", error);
+      setUploadError(error.message || 'Dosya yüklenirken bir hata oluştu.');
+    } finally {
+      setIsUploading(false);
+      // Aynı dosyaları tekrar yükleyebilmek için input'u temizle
+      e.target.value = '';
     }
-    
-    // Tüm yeni resimleri state'e ekle
-    if (newImages.length > 0) {
-      setImages(prev => [...newImages, ...prev]);
-    }
-    
-    setIsUploading(false);
-    // Aynı dosyaları tekrar yükleyebilmek için input'u temizle
-    e.target.value = '';
   };
 
   const updateImageTopic = (id, newTopic) => {
@@ -557,7 +590,7 @@ export default function App() {
               <input 
                 type="file" 
                 multiple 
-                accept="image/*" 
+                accept="image/*,.txt" 
                 onChange={handleImageUpload}
                 className="hidden" 
                 id="file-upload"
@@ -571,8 +604,9 @@ export default function App() {
                   <ImageIcon size={32} />
                 </div>
                 <div>
-                  <span className="text-blue-600 font-medium hover:underline">Görselleri seçin</span> veya sürükleyip bırakın
-                  <p className="text-sm text-gray-500 mt-1">İsimlendirme önerisi: KonuAdi_SoruNo.jpg (Örn: Turev_01.jpg)</p>
+                  <span className="text-blue-600 font-medium hover:underline">Dosyaları seçin</span> veya sürükleyip bırakın
+                  <p className="text-sm text-gray-500 mt-1">Görsel dosyaları (JPG, PNG) veya metin dosyaları (.txt) yükleyebilirsiniz</p>
+                  <p className="text-xs text-gray-400 mt-1">İsimlendirme önerisi: KonuAdi_SoruNo.jpg (Örn: Turev_01.jpg)</p>
                 </div>
               </label>
             </div>
@@ -596,7 +630,14 @@ export default function App() {
                         <Trash2 size={16} />
                       </button>
                       <div className="h-32 bg-gray-50 rounded-md mb-3 flex items-center justify-center overflow-hidden border border-gray-100">
-                        <img src={img.src} alt={img.filename} className="max-h-full max-w-full object-contain mix-blend-multiply" />
+                        {img.src ? (
+                          <img src={img.src} alt={img.filename} className="max-h-full max-w-full object-contain mix-blend-multiply" />
+                        ) : (
+                          <div className="flex flex-col items-center justify-center text-gray-400">
+                            <FileText size={32} />
+                            <span className="text-xs mt-1">Metin Dosyası</span>
+                          </div>
+                        )}
                       </div>
                       <div className="space-y-2">
                         <p className="text-xs text-gray-400 truncate" title={img.filename}>{img.filename}</p>
