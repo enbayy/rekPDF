@@ -743,11 +743,11 @@ Mehmet Can	Trigonometri"
                   <select 
                     value={selectedStudentId}
                     onChange={(e) => setSelectedStudentId(e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50 text-gray-900"
                   >
                     <option value="">-- Öğrenci Seçiniz --</option>
                     {students.map(s => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
+                      <option key={s.id} value={s.id} className="text-gray-900">{s.name}</option>
                     ))}
                   </select>
                 </div>
