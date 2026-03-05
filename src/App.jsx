@@ -410,7 +410,16 @@ export default function App() {
 
             <!-- SORULAR - 2 SÜTUN (2x2 = 4 soru) -->
             <div class="flex-1 flex relative w-full box-border">
-              <div class="absolute left-1/2 top-0 bottom-0 w-[1px] transform -translate-x-1/2" style="background-color: #8e34e9;"></div>
+              <!-- ÜST ÇİZGİ -->
+              <div class="absolute left-1/2 top-0 w-[1px] transform -translate-x-1/2" style="background-color: #8e34e9; height: 50%;"></div>
+              <!-- ORTA METİN -->
+              <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10" style="background-color: white; padding: 8px 4px;">
+                <div class="text-xs font-bold uppercase" style="color: #8e34e9; writing-mode: vertical-rl; text-orientation: upright; font-size: 9px; letter-spacing: 0.1em; line-height: 1.2;">
+                  REKABETÇİ DENEMELERİ
+                </div>
+              </div>
+              <!-- ALT ÇİZGİ -->
+              <div class="absolute left-1/2 bottom-0 w-[1px] transform -translate-x-1/2" style="background-color: #8e34e9; height: 50%;"></div>
               
               <!-- SOL SÜTUN (İlk 2 soru) -->
               <div class="w-1/2 pr-[2mm] flex flex-col gap-4 box-border flex-shrink-0" style="width: 50%; box-sizing: border-box;">
@@ -1059,8 +1068,16 @@ Mehmet Can	Trigonometri"
 
                     {/* SORULAR - 2 SÜTUN (2x2 = 4 soru) */}
                     <div className="flex-1 flex relative w-full box-border">
-                      {/* ORTA ÇİZGİ */}
-                      <div className="absolute left-1/2 top-0 bottom-0 w-[1px] transform -translate-x-1/2" style={{ backgroundColor: '#8e34e9' }}></div>
+                      {/* ÜST ÇİZGİ */}
+                      <div className="absolute left-1/2 top-0 w-[1px] transform -translate-x-1/2" style={{ backgroundColor: '#8e34e9', height: '50%' }}></div>
+                      {/* ORTA METİN */}
+                      <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10" style={{ backgroundColor: 'white', padding: '8px 4px' }}>
+                        <div className="text-xs font-bold uppercase" style={{ color: '#8e34e9', writingMode: 'vertical-rl', textOrientation: 'upright', fontSize: '9px', letterSpacing: '0.1em', lineHeight: '1.2' }}>
+                          REKABETÇİ DENEMELERİ
+                        </div>
+                      </div>
+                      {/* ALT ÇİZGİ */}
+                      <div className="absolute left-1/2 bottom-0 w-[1px] transform -translate-x-1/2" style={{ backgroundColor: '#8e34e9', height: '50%' }}></div>
                       
                       {/* SOL SÜTUN (İlk 2 soru) */}
                       <div className="w-1/2 pr-[2mm] flex flex-col gap-4 box-border flex-shrink-0" style={{ width: '50%', boxSizing: 'border-box' }}>
