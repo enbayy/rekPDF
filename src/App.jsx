@@ -62,6 +62,9 @@ export default function App() {
   });
   const [previewQuestions, setPreviewQuestions] = useState([]);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isGeneratingAllPDFs, setIsGeneratingAllPDFs] = useState(false);
+  const [pdfGenerationProgress, setPdfGenerationProgress] = useState({ current: 0, total: 0 });
+  const [generatingPDFForStudent, setGeneratingPDFForStudent] = useState(null); // Hangi öğrenci için PDF oluşturuluyor
   const pdfRef = useRef(null);
 
   // --- 1. LOCALSTORAGE'DAN VERİ ÇEKME İŞLEMLERİ ---
@@ -303,14 +306,79 @@ export default function App() {
   };
 
   // --- 4. DİZGİ VE KOTA İŞLEMLERİ ---
-  const handleQuotaChange = (topic, value) => {
-    setQuotas(prev => ({
-      ...prev,
-      [topic.toLowerCase()]: parseInt(value) || 0
-    }));
+  // Belirli bir öğrenci için soruları hesapla
+  const getQuestionsForStudent = (studentId) => {
+    const student = students.find(s => s.id === studentId);
+    if (!student) return [];
+
+    let finalQs = [];
+    student.topics.forEach(topic => {
+      const topicLower = topic.toLowerCase();
+      const availableImages = images.filter(img => img.topic.toLowerCase() === topicLower);
+      // Tüm mevcut soruları seç
+      finalQs = [...finalQs, ...availableImages];
+    });
+
+    return finalQs;
   };
 
+  // Tek öğrenci durumunda otomatik seç
   useEffect(() => {
+    if (students.length === 1 && !selectedStudentId) {
+      setSelectedStudentId(students[0].id);
+    }
+  }, [students.length, selectedStudentId]);
+
+  // Öğrenci seçildiğinde otomatik olarak tüm soruları seç (tek öğrenci durumu için)
+  // Sadece settings sekmesinde çalışır
+  useEffect(() => {
+    // Preview sekmesindeyse bu useEffect'i çalıştırma
+    if (activeTab !== 'settings') {
+      return;
+    }
+
+    if (students.length > 1) {
+      // Birden fazla öğrenci varsa, settings sekmesinde selectedStudentId yoksa temizle
+      if (!selectedStudentId) {
+        setPreviewQuestions([]);
+        setQuotas({});
+      }
+      return;
+    }
+
+    if (!selectedStudentId) {
+      setPreviewQuestions([]);
+      setQuotas({});
+      return;
+    }
+
+    const student = students.find(s => s.id === selectedStudentId);
+    if (!student) return;
+
+    // Otomatik olarak her konu için mevcut tüm soruları seç
+    const autoQuotas = {};
+    student.topics.forEach(topic => {
+      const topicLower = topic.toLowerCase();
+      const availableImages = images.filter(img => img.topic.toLowerCase() === topicLower);
+      autoQuotas[topicLower] = availableImages.length; // Mevcut tüm soruları seç
+    });
+
+    // Quotas'ı otomatik olarak güncelle
+    setQuotas(autoQuotas);
+  }, [selectedStudentId, images, students, activeTab]);
+
+  // Quotas değiştiğinde soruları güncelle (tek öğrenci durumu için)
+  // Sadece settings sekmesinde çalışır
+  useEffect(() => {
+    // Preview sekmesindeyse bu useEffect'i çalıştırma
+    if (activeTab !== 'settings') {
+      return;
+    }
+
+    if (students.length > 1) {
+      return; // Birden fazla öğrenci varsa bu useEffect'i çalıştırma
+    }
+
     if (!selectedStudentId) {
       setPreviewQuestions([]);
       return;
@@ -331,7 +399,39 @@ export default function App() {
     });
 
     setPreviewQuestions(finalQs);
-  }, [selectedStudentId, quotas, images, students]);
+  }, [selectedStudentId, quotas, images, students, activeTab]);
+
+  // Belirli bir öğrenci için PDF indir
+  const handleDownloadPDFForStudent = async (studentId) => {
+    const studentQuestions = getQuestionsForStudent(studentId);
+    if (studentQuestions.length === 0) {
+      alert('Bu öğrenci için soru bulunamadı.');
+      return;
+    }
+
+    setGeneratingPDFForStudent(studentId); // Bu öğrenci için PDF oluşturuluyor
+    
+    try {
+      const result = await generatePDFForStudent(studentId, studentQuestions);
+      if (result) {
+        const fileName = `${result.studentName}_${new Date().toISOString().split('T')[0]}.pdf`;
+        result.pdf.save(fileName);
+      }
+    } catch (error) {
+      console.error('PDF oluşturma hatası:', error);
+      alert('PDF oluşturulurken bir hata oluştu: ' + error.message);
+    } finally {
+      setGeneratingPDFForStudent(null); // PDF oluşturma tamamlandı
+    }
+  };
+
+  // Belirli bir öğrenci için önizlemeyi göster
+  const handlePreviewForStudent = (studentId) => {
+    setSelectedStudentId(studentId);
+    const studentQuestions = getQuestionsForStudent(studentId);
+    setPreviewQuestions(studentQuestions);
+    setActiveTab('preview');
+  };
 
   // Soru boyutunu hesapla (0-1000 arası değer)
   const calculateQuestionSize = (q) => {
@@ -524,224 +624,288 @@ export default function App() {
     window.print();
   };
 
+  // Belirli bir öğrenci için PDF oluştur (yeniden kullanılabilir fonksiyon)
+  const generatePDFForStudent = async (studentId, studentQuestions) => {
+    if (!studentId || !studentQuestions || studentQuestions.length === 0) {
+      return null;
+    }
+
+    // Soru boyutlarına göre temel sayfa başına soru sayısını belirle
+    const baseQuestionsPerPage = calculateQuestionsPerPage(studentQuestions);
+    
+    // Dinamik sayfa oluşturma - boşlukları doldur
+    const pages = [];
+    let remainingQuestions = [...studentQuestions];
+    
+    while (remainingQuestions.length > 0) {
+      const result = fillPageWithQuestions(remainingQuestions, baseQuestionsPerPage);
+      pages.push(result.pageQuestions);
+      remainingQuestions = result.remaining;
+    }
+
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pdfWidth = 210; // mm
+    const pdfHeight = 297; // mm
+    const elementWidth = 794; // 210mm in pixels at 96 DPI
+
+    const student = students.find(s => s.id === studentId);
+    const studentName = student?.name || 'Fasikul';
+
+    // Her sayfa için ayrı ayrı işle
+    let globalQuestionIndex = 0; // Global soru indexi
+    for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+      const pageQuestions = pages[pageIndex];
+      const actualQuestionsPerPage = pageQuestions.length; // Gerçek soru sayısı
+      
+      // Bu sayfa için gap değerini hesapla (soru boyutlarına ve sayısına göre optimize)
+      const gapValue = calculateGapForPage(pageQuestions, actualQuestionsPerPage);
+      
+      // Geçici bir sayfa elementi oluştur
+      const tempPageElement = document.createElement('div');
+      tempPageElement.className = 'w-[210mm] min-h-[297mm] bg-white';
+      tempPageElement.style.width = '210mm';
+      tempPageElement.style.maxWidth = '210mm';
+      tempPageElement.style.minWidth = '210mm';
+      tempPageElement.style.boxSizing = 'border-box';
+      tempPageElement.style.position = 'absolute';
+      tempPageElement.style.left = '-9999px';
+      tempPageElement.style.top = '0';
+      document.body.appendChild(tempPageElement);
+
+      // Sayfa içeriğini oluştur
+      tempPageElement.innerHTML = `
+        <div class="p-[2mm] font-sans flex flex-col bg-white relative w-full box-border" style="width: 100%; maxWidth: 100%; min-height: 297mm; height: 100%;">
+          <!-- ÜST BAŞLIK - YENİ TASARIM -->
+          <div class="mb-4 relative" style="background: linear-gradient(135deg, #141b35 0%, #8e34e9 100%); padding: 16px 20px; border-radius: 8px; margin-bottom: 16px;">
+            <div class="flex items-center justify-between">
+              <img src="/rbdlogo.png" alt="RBD Logo" style="height: 50px; width: auto; object-fit: contain; flex-shrink: 0;" />
+              <div class="text-center flex-1">
+                <h1 class="text-2xl font-black text-white tracking-wide uppercase mb-2" style="letter-spacing: 0.15em; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                  REKABETÇİ DENEMELERİ
+                </h1>
+                <div class="w-32 h-1 bg-white mx-auto" style="opacity: 0.9; border-radius: 2px;"></div>
+              </div>
+              <div class="text-right" style="flex-shrink: 0; width: auto;">
+                <div class="text-sm font-bold text-white uppercase" style="font-size: 11px; letter-spacing: 0.1em; line-height: 1.4;">
+                  Öğrenciye Özel<br/>Çalışma Fasikülü
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ÖĞRENCİ BİLGİ BÖLÜMÜ - YENİ TASARIM -->
+          ${design.showStudentName ? `
+            <div class="mb-4" style="background: linear-gradient(135deg, rgba(142, 52, 233, 0.1) 0%, rgba(20, 27, 53, 0.1) 100%); padding: 12px 16px; border-radius: 8px; border-left: 4px solid #8e34e9; margin-bottom: 16px;">
+              <div class="flex justify-between items-center">
+                <div>
+                  <div class="text-xs uppercase font-semibold mb-1" style="color: #8e34e9;">Öğrenci Adı Soyadı</div>
+                  <div class="text-lg font-bold" style="color: #141b35;">${studentName}</div>
+                </div>
+                <div class="text-right">
+                  <div class="text-xs uppercase font-semibold mb-1" style="color: #8e34e9;">Tarih</div>
+                  <div class="text-sm font-semibold" style="color: #141b35;">${new Date().toLocaleDateString('tr-TR')}</div>
+                </div>
+              </div>
+            </div>
+          ` : ''}
+
+          <!-- SORULAR - 2 SÜTUN (Dinamik soru sayısı) -->
+          <div class="flex-1 flex relative w-full box-border">
+            <!-- ÜST ÇİZGİ -->
+            <div class="absolute left-1/2 top-0 w-[1px] transform -translate-x-1/2" style="background-color: #8e34e9; height: calc(50% - 120px);"></div>
+            <!-- ORTA METİN -->
+            <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10" style="padding: 8px 4px; background-color: white;">
+              <div class="text-xs font-bold uppercase" style="color: #8e34e9; writing-mode: vertical-rl; text-orientation: upright; font-size: 9px; letter-spacing: 0.1em; line-height: 1.2;">
+                REKABETÇİ DENEMELERİ
+              </div>
+            </div>
+            <!-- ALT ÇİZGİ -->
+            <div class="absolute left-1/2 bottom-0 w-[1px] transform -translate-x-1/2" style="background-color: #8e34e9; top: calc(50% + 120px); height: calc(50% - 120px);"></div>
+            
+            <!-- SOL SÜTUN -->
+            <div class="w-1/2 pr-[2mm] flex flex-col box-border flex-shrink-0" style="width: 50%; box-sizing: border-box; gap: ${gapValue};">
+              ${pageQuestions.slice(0, Math.ceil(actualQuestionsPerPage / 2)).map((q, idx) => {
+                const currentGlobalIndex = globalQuestionIndex + idx;
+                return `
+                  <div class="break-inside-avoid flex items-start gap-2 w-full">
+                    <span class="text-gray-900 font-bold text-sm flex-shrink-0">
+                      ${currentGlobalIndex + 1})
+                    </span>
+                    <div class="flex-1">
+                      ${q.src ? 
+                        `<img src="${q.src}" alt="${q.filename}" class="max-w-full h-auto" />` : 
+                        `<div class="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap font-mono pdf-text-content" style="font-family: monospace; white-space: pre-wrap; word-break: break-word; color: #1f2937;">${q.text || 'İçerik yok'}</div>`
+                      }
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+            
+            <!-- SAĞ SÜTUN -->
+            <div class="w-1/2 pl-[2mm] flex flex-col box-border flex-shrink-0" style="width: 50%; box-sizing: border-box; gap: ${gapValue};">
+              ${pageQuestions.slice(Math.ceil(actualQuestionsPerPage / 2), actualQuestionsPerPage).map((q, idx) => {
+                const currentGlobalIndex = globalQuestionIndex + Math.ceil(actualQuestionsPerPage / 2) + idx;
+                return `
+                  <div class="break-inside-avoid flex items-start gap-2 w-full">
+                    <span class="text-gray-900 font-bold text-sm flex-shrink-0">
+                      ${currentGlobalIndex + 1})
+                    </span>
+                    <div class="flex-1">
+                      ${q.src ? 
+                        `<img src="${q.src}" alt="${q.filename}" class="max-w-full h-auto" />` : 
+                        `<div class="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap font-mono pdf-text-content" style="font-family: monospace; white-space: pre-wrap; word-break: break-word; color: #1f2937;">${q.text || 'İçerik yok'}</div>`
+                      }
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <!-- ALT BİLGİ - FOOTER - YENİ TASARIM -->
+          <div class="mt-auto relative" style="background: linear-gradient(135deg, #141b35 0%, #8e34e9 100%); padding: 14px 20px; border-radius: 8px; margin-top: auto;">
+            <div class="flex justify-between items-center text-xs">
+              <div class="text-left">
+                <span class="font-medium text-white" style="opacity: 0.95;">Bu fasikül </span>
+                <span class="font-bold text-white">${studentName}</span>
+                <span class="font-medium text-white" style="opacity: 0.95;"> için özel olarak hazırlanmıştır.</span>
+              </div>
+              <div class="text-white font-bold uppercase tracking-wider ml-4" style="font-size: 11px; letter-spacing: 0.2em; opacity: 0.95;">
+                Başarılar Dileriz
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Metinlerin render edilmesi için bekleme
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // Canvas oluştur
+      const canvas = await html2canvas(tempPageElement, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+        logging: false,
+        backgroundColor: '#ffffff',
+        width: elementWidth,
+        windowWidth: elementWidth,
+        foreignObjectRendering: false,
+        onclone: (clonedDoc) => {
+          const textElements = clonedDoc.body.querySelectorAll('.pdf-text-content');
+          textElements.forEach(el => {
+            el.style.display = 'block';
+            el.style.visibility = 'visible';
+            el.style.opacity = '1';
+            el.style.color = '#1f2937';
+            el.style.fontFamily = 'monospace, "Courier New", Courier, monospace';
+            el.style.whiteSpace = 'pre-wrap';
+            el.style.wordBreak = 'break-word';
+          });
+        }
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      
+      // Piksel'i mm'ye dönüştür
+      const pixelsPerMM = (96 * 2) / 25.4;
+      const imgWidthInMM = imgWidth / pixelsPerMM;
+      const imgHeightInMM = imgHeight / pixelsPerMM;
+      
+      // Görüntüyü A4 sayfa genişliğine sığdır
+      const ratio = pdfWidth / imgWidthInMM;
+      const scaledHeightInMM = imgHeightInMM * ratio;
+      const scaledWidthInMM = pdfWidth;
+      
+      // İlk sayfa değilse yeni sayfa ekle
+      if (pageIndex > 0) {
+        pdf.addPage();
+      }
+      
+      // Sayfayı PDF'e ekle
+      pdf.addImage(imgData, 'PNG', 0, 0, scaledWidthInMM, scaledHeightInMM);
+      
+      // Geçici elementi temizle
+      document.body.removeChild(tempPageElement);
+      
+      // Global soru indexini güncelle
+      globalQuestionIndex += actualQuestionsPerPage;
+    }
+    
+    return { pdf, studentName };
+  };
+
+  // Tek öğrenci için PDF indir
   const handleDownloadPDF = async () => {
     if (!selectedStudentId || previewQuestions.length === 0) return;
     
     setIsGeneratingPDF(true);
     
     try {
-      // Soru boyutlarına göre temel sayfa başına soru sayısını belirle
-      const baseQuestionsPerPage = calculateQuestionsPerPage(previewQuestions);
-      
-      // Dinamik sayfa oluşturma - boşlukları doldur
-      const pages = [];
-      let remainingQuestions = [...previewQuestions];
-      
-      while (remainingQuestions.length > 0) {
-        const result = fillPageWithQuestions(remainingQuestions, baseQuestionsPerPage);
-        pages.push(result.pageQuestions);
-        remainingQuestions = result.remaining;
+      const result = await generatePDFForStudent(selectedStudentId, previewQuestions);
+      if (result) {
+        const fileName = `${result.studentName}_${new Date().toISOString().split('T')[0]}.pdf`;
+        result.pdf.save(fileName);
       }
-
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = 210; // mm
-      const pdfHeight = 297; // mm
-      const elementWidth = 794; // 210mm in pixels at 96 DPI
-
-      // Her sayfa için ayrı ayrı işle
-      let globalQuestionIndex = 0; // Global soru indexi
-      for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
-        const pageQuestions = pages[pageIndex];
-        const actualQuestionsPerPage = pageQuestions.length; // Gerçek soru sayısı
-        
-        // Bu sayfa için gap değerini hesapla (soru boyutlarına ve sayısına göre optimize)
-        const gapValue = calculateGapForPage(pageQuestions, actualQuestionsPerPage);
-        
-        // Geçici bir sayfa elementi oluştur
-        const tempPageElement = document.createElement('div');
-        tempPageElement.className = 'w-[210mm] min-h-[297mm] bg-white';
-        tempPageElement.style.width = '210mm';
-        tempPageElement.style.maxWidth = '210mm';
-        tempPageElement.style.minWidth = '210mm';
-        tempPageElement.style.boxSizing = 'border-box';
-        tempPageElement.style.position = 'absolute';
-        tempPageElement.style.left = '-9999px';
-        tempPageElement.style.top = '0';
-        document.body.appendChild(tempPageElement);
-
-        // Sayfa içeriğini oluştur
-        tempPageElement.innerHTML = `
-          <div class="p-[2mm] font-sans flex flex-col bg-white relative w-full box-border" style="width: 100%; maxWidth: 100%; min-height: 297mm; height: 100%;">
-            <!-- ÜST BAŞLIK - YENİ TASARIM -->
-            <div class="mb-4 relative" style="background: linear-gradient(135deg, #141b35 0%, #8e34e9 100%); padding: 16px 20px; border-radius: 8px; margin-bottom: 16px;">
-              <div class="flex items-center justify-between">
-                <img src="/rbdlogo.png" alt="RBD Logo" style="height: 50px; width: auto; object-fit: contain; flex-shrink: 0;" />
-                <div class="text-center flex-1">
-                  <h1 class="text-2xl font-black text-white tracking-wide uppercase mb-2" style="letter-spacing: 0.15em; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">
-                    REKABETÇİ DENEMELERİ
-                  </h1>
-                  <div class="w-32 h-1 bg-white mx-auto" style="opacity: 0.9; border-radius: 2px;"></div>
-                </div>
-                <div class="text-right" style="flex-shrink: 0; width: auto;">
-                  <div class="text-sm font-bold text-white uppercase" style="font-size: 11px; letter-spacing: 0.1em; line-height: 1.4;">
-                    Öğrenciye Özel<br/>Çalışma Fasikülü
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- ÖĞRENCİ BİLGİ BÖLÜMÜ - YENİ TASARIM -->
-            ${design.showStudentName ? `
-              <div class="mb-4" style="background: linear-gradient(135deg, rgba(142, 52, 233, 0.1) 0%, rgba(20, 27, 53, 0.1) 100%); padding: 12px 16px; border-radius: 8px; border-left: 4px solid #8e34e9; margin-bottom: 16px;">
-                <div class="flex justify-between items-center">
-                  <div>
-                    <div class="text-xs uppercase font-semibold mb-1" style="color: #8e34e9;">Öğrenci Adı Soyadı</div>
-                    <div class="text-lg font-bold" style="color: #141b35;">${students.find(s => s.id === selectedStudentId)?.name || ''}</div>
-                  </div>
-                  <div class="text-right">
-                    <div class="text-xs uppercase font-semibold mb-1" style="color: #8e34e9;">Tarih</div>
-                    <div class="text-sm font-semibold" style="color: #141b35;">${new Date().toLocaleDateString('tr-TR')}</div>
-                  </div>
-                </div>
-              </div>
-            ` : ''}
-
-            <!-- SORULAR - 2 SÜTUN (Dinamik soru sayısı) -->
-            <div class="flex-1 flex relative w-full box-border">
-              <!-- ÜST ÇİZGİ -->
-              <div class="absolute left-1/2 top-0 w-[1px] transform -translate-x-1/2" style="background-color: #8e34e9; height: calc(50% - 120px);"></div>
-              <!-- ORTA METİN -->
-              <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10" style="padding: 8px 4px; background-color: white;">
-                <div class="text-xs font-bold uppercase" style="color: #8e34e9; writing-mode: vertical-rl; text-orientation: upright; font-size: 9px; letter-spacing: 0.1em; line-height: 1.2;">
-                  REKABETÇİ DENEMELERİ
-                </div>
-              </div>
-              <!-- ALT ÇİZGİ -->
-              <div class="absolute left-1/2 bottom-0 w-[1px] transform -translate-x-1/2" style="background-color: #8e34e9; top: calc(50% + 120px); height: calc(50% - 120px);"></div>
-              
-              <!-- SOL SÜTUN -->
-              <div class="w-1/2 pr-[2mm] flex flex-col box-border flex-shrink-0" style="width: 50%; box-sizing: border-box; gap: ${gapValue};">
-                ${pageQuestions.slice(0, Math.ceil(actualQuestionsPerPage / 2)).map((q, idx) => {
-                  const currentGlobalIndex = globalQuestionIndex + idx;
-                  return `
-                    <div class="break-inside-avoid flex items-start gap-2 w-full">
-                      <span class="text-gray-900 font-bold text-sm flex-shrink-0">
-                        ${currentGlobalIndex + 1})
-                      </span>
-                      <div class="flex-1">
-                        ${q.src ? 
-                          `<img src="${q.src}" alt="${q.filename}" class="max-w-full h-auto" />` : 
-                          `<div class="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap font-mono pdf-text-content" style="font-family: monospace; white-space: pre-wrap; word-break: break-word; color: #1f2937;">${q.text || 'İçerik yok'}</div>`
-                        }
-                      </div>
-                    </div>
-                  `;
-                }).join('')}
-              </div>
-              
-              <!-- SAĞ SÜTUN -->
-              <div class="w-1/2 pl-[2mm] flex flex-col box-border flex-shrink-0" style="width: 50%; box-sizing: border-box; gap: ${gapValue};">
-                ${pageQuestions.slice(Math.ceil(actualQuestionsPerPage / 2), actualQuestionsPerPage).map((q, idx) => {
-                  const currentGlobalIndex = globalQuestionIndex + Math.ceil(actualQuestionsPerPage / 2) + idx;
-                  return `
-                    <div class="break-inside-avoid flex items-start gap-2 w-full">
-                      <span class="text-gray-900 font-bold text-sm flex-shrink-0">
-                        ${currentGlobalIndex + 1})
-                      </span>
-                      <div class="flex-1">
-                        ${q.src ? 
-                          `<img src="${q.src}" alt="${q.filename}" class="max-w-full h-auto" />` : 
-                          `<div class="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap font-mono pdf-text-content" style="font-family: monospace; white-space: pre-wrap; word-break: break-word; color: #1f2937;">${q.text || 'İçerik yok'}</div>`
-                        }
-                      </div>
-                    </div>
-                  `;
-                }).join('')}
-              </div>
-            </div>
-
-            <!-- ALT BİLGİ - FOOTER - YENİ TASARIM -->
-            <div class="mt-auto relative" style="background: linear-gradient(135deg, #141b35 0%, #8e34e9 100%); padding: 14px 20px; border-radius: 8px; margin-top: auto;">
-              <div class="flex justify-between items-center text-xs">
-                <div class="text-left">
-                  <span class="font-medium text-white" style="opacity: 0.95;">Bu fasikül </span>
-                  <span class="font-bold text-white">${students.find(s => s.id === selectedStudentId)?.name || ''}</span>
-                  <span class="font-medium text-white" style="opacity: 0.95;"> için özel olarak hazırlanmıştır.</span>
-                </div>
-                <div class="text-white font-bold uppercase tracking-wider ml-4" style="font-size: 11px; letter-spacing: 0.2em; opacity: 0.95;">
-                  Başarılar Dileriz
-                </div>
-              </div>
-            </div>
-          </div>
-        `;
-
-        // Metinlerin render edilmesi için bekleme
-        await new Promise(resolve => setTimeout(resolve, 300));
-
-        // Canvas oluştur
-        const canvas = await html2canvas(tempPageElement, {
-          scale: 2,
-          useCORS: true,
-          allowTaint: false,
-          logging: false,
-          backgroundColor: '#ffffff',
-          width: elementWidth,
-          windowWidth: elementWidth,
-          foreignObjectRendering: false,
-          onclone: (clonedDoc) => {
-            const textElements = clonedDoc.body.querySelectorAll('.pdf-text-content');
-            textElements.forEach(el => {
-              el.style.display = 'block';
-              el.style.visibility = 'visible';
-              el.style.opacity = '1';
-              el.style.color = '#1f2937';
-              el.style.fontFamily = 'monospace, "Courier New", Courier, monospace';
-              el.style.whiteSpace = 'pre-wrap';
-              el.style.wordBreak = 'break-word';
-            });
-          }
-        });
-        
-        const imgData = canvas.toDataURL('image/png');
-        const imgWidth = canvas.width;
-        const imgHeight = canvas.height;
-        
-        // Piksel'i mm'ye dönüştür
-        const pixelsPerMM = (96 * 2) / 25.4;
-        const imgWidthInMM = imgWidth / pixelsPerMM;
-        const imgHeightInMM = imgHeight / pixelsPerMM;
-        
-        // Görüntüyü A4 sayfa genişliğine sığdır
-        const ratio = pdfWidth / imgWidthInMM;
-        const scaledHeightInMM = imgHeightInMM * ratio;
-        const scaledWidthInMM = pdfWidth;
-        
-        // İlk sayfa değilse yeni sayfa ekle
-        if (pageIndex > 0) {
-          pdf.addPage();
-        }
-        
-        // Sayfayı PDF'e ekle
-        pdf.addImage(imgData, 'PNG', 0, 0, scaledWidthInMM, scaledHeightInMM);
-        
-        // Geçici elementi temizle
-        document.body.removeChild(tempPageElement);
-        
-        // Global soru indexini güncelle
-        globalQuestionIndex += actualQuestionsPerPage;
-      }
-      
-      // Öğrenci adını dosya adı olarak kullan
-      const studentName = students.find(s => s.id === selectedStudentId)?.name || 'Fasikul';
-      const fileName = `${studentName}_${new Date().toISOString().split('T')[0]}.pdf`;
-      
-      pdf.save(fileName);
     } catch (error) {
       console.error('PDF oluşturma hatası:', error);
       alert('PDF oluşturulurken bir hata oluştu: ' + error.message);
     } finally {
       setIsGeneratingPDF(false);
+    }
+  };
+
+  // Tüm öğrenciler için PDF indir
+  const handleDownloadAllPDFs = async () => {
+    if (students.length === 0) {
+      alert('PDF oluşturmak için öğrenci bulunamadı.');
+      return;
+    }
+
+    setIsGeneratingAllPDFs(true);
+    setPdfGenerationProgress({ current: 0, total: students.length });
+
+    try {
+      for (let i = 0; i < students.length; i++) {
+        const student = students[i];
+        
+        // Öğrenci için soruları hazırla
+        let studentQuestions = [];
+        student.topics.forEach(topic => {
+          const topicLower = topic.toLowerCase();
+          const availableImages = images.filter(img => img.topic.toLowerCase() === topicLower);
+          studentQuestions = [...studentQuestions, ...availableImages];
+        });
+
+        if (studentQuestions.length === 0) {
+          console.warn(`${student.name} için soru bulunamadı, atlanıyor.`);
+          setPdfGenerationProgress({ current: i + 1, total: students.length });
+          continue;
+        }
+
+        // PDF oluştur
+        const result = await generatePDFForStudent(student.id, studentQuestions);
+        if (result) {
+          const fileName = `${result.studentName}_${new Date().toISOString().split('T')[0]}.pdf`;
+          result.pdf.save(fileName);
+          
+          // Her PDF arasında kısa bir bekleme (tarayıcının dosyaları düzgün indirmesi için)
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        setPdfGenerationProgress({ current: i + 1, total: students.length });
+      }
+
+      alert(`Tüm öğrenciler için PDF'ler başarıyla oluşturuldu! (${students.length} öğrenci)`);
+    } catch (error) {
+      console.error('Toplu PDF oluşturma hatası:', error);
+      alert('PDF\'ler oluşturulurken bir hata oluştu: ' + error.message);
+    } finally {
+      setIsGeneratingAllPDFs(false);
+      setPdfGenerationProgress({ current: 0, total: 0 });
     }
   };
 
@@ -918,9 +1082,56 @@ export default function App() {
         {/* TAB 2: ÖĞRENCİ VERİSİ */}
         {activeTab === 'data' && (
           <div className="p-4 md:p-8 max-w-5xl mx-auto">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-              <Users className="text-blue-600" /> Öğrenci ve Eksik Konu Verileri
-            </h2>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                <Users className="text-blue-600" /> Öğrenci ve Eksik Konu Verileri
+              </h2>
+              
+              {/* Toplu PDF İndirme Butonu - Üst Kısım */}
+              {students.length > 0 && (
+                <button
+                  onClick={handleDownloadAllPDFs}
+                  disabled={students.length === 0 || isGeneratingAllPDFs || images.length === 0}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors shadow-sm"
+                >
+                  {isGeneratingAllPDFs ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin" />
+                      <span className="text-sm">
+                        PDF Oluşturuluyor... ({pdfGenerationProgress.current}/{pdfGenerationProgress.total})
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Download size={18} />
+                      <span className="text-sm">Tüm Öğrenciler için PDF İndir</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {/* İlerleme Çubuğu */}
+            {isGeneratingAllPDFs && pdfGenerationProgress.total > 0 && (
+              <div className="mb-6 bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+                  <div 
+                    className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${(pdfGenerationProgress.current / pdfGenerationProgress.total) * 100}%` }}
+                  ></div>
+                </div>
+                <p className="text-xs text-gray-500 text-center">
+                  {pdfGenerationProgress.current} / {pdfGenerationProgress.total} öğrenci işlendi
+                </p>
+              </div>
+            )}
+
+            {images.length === 0 && students.length > 0 && (
+              <div className="mb-6 bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-lg flex items-center gap-2">
+                <AlertCircle size={18} />
+                <span className="text-sm">PDF oluşturmak için önce soruları yükleyin.</span>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -981,76 +1192,155 @@ Mehmet Can	Trigonometri"
 
         {/* TAB 3: DİZGİ AYARLARI */}
         {activeTab === 'settings' && (
-          <div className="p-4 md:p-8 max-w-5xl mx-auto">
+          <div className="p-4 md:p-8 max-w-7xl mx-auto">
             <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
               <Settings className="text-blue-600" /> PDF Dizgi ve Soru Ayarları
             </h2>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Sol: Öğrenci ve Konu Seçimi */}
-              <div className="lg:col-span-2 space-y-6">
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                  <h3 className="font-semibold text-gray-800 mb-4">1. Öğrenci Seçin</h3>
-                  <select 
-                    value={selectedStudentId}
-                    onChange={(e) => setSelectedStudentId(e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50 text-gray-900"
-                  >
-                    <option value="">-- Öğrenci Seçiniz --</option>
-                    {students.map(s => (
-                      <option key={s.id} value={s.id} className="text-gray-900">{s.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {selectedStudentId && (
-                  <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-fade-in">
-                    <h3 className="font-semibold text-gray-800 mb-4 flex items-center justify-between">
-                      <span>2. Konu Dağılımı (Soru Kotaları)</span>
-                      <span className="text-sm font-normal text-gray-500">
-                        Toplam Seçilen: {Object.values(quotas).reduce((a, b) => a + (parseInt(b) || 0), 0)} Soru
-                      </span>
-                    </h3>
-                    
-                    <div className="space-y-4">
-                      {students.find(s => s.id === selectedStudentId)?.topics.map((topic, idx) => {
-                        const topicLower = topic.toLowerCase();
-                        const availableCount = images.filter(img => img.topic.toLowerCase() === topicLower).length;
-                        
-                        return (
-                          <div key={idx} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100">
-                            <div>
-                              <p className="font-medium text-gray-800 capitalize">{topic}</p>
-                              <p className="text-xs text-gray-500 mt-1">Havuzdaki soru: {availableCount}</p>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <label className="text-sm text-gray-600">Eklenecek Soru:</label>
-                              <input 
-                                type="number" 
-                                min="0"
-                                max={availableCount}
-                                value={quotas[topicLower] || 0}
-                                onChange={(e) => handleQuotaChange(topic, e.target.value)}
-                                className="w-20 p-2 text-center border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {students.find(s => s.id === selectedStudentId)?.topics.length === 0 && (
-                        <p className="text-sm text-amber-600 p-4 bg-amber-50 rounded-lg">Bu öğrenci için eksik konu girilmemiş.</p>
-                      )}
+            {students.length === 0 ? (
+              <div className="bg-white p-12 rounded-xl shadow-sm border border-gray-200 text-center">
+                <Users size={48} className="mx-auto text-gray-300 mb-4" />
+                <h3 className="text-lg font-medium text-gray-800 mb-2">Henüz Öğrenci Eklenmedi</h3>
+                <p className="text-gray-500 mb-6">
+                  PDF oluşturmak için önce öğrenci verilerini ekleyin.
+                </p>
+                <button 
+                  onClick={() => setActiveTab('data')}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+                >
+                  Öğrenci Verisi Ekle
+                </button>
+              </div>
+            ) : students.length === 1 ? (
+              // Tek öğrenci durumu - Eski sistem
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Sol: Öğrenci ve Konu Seçimi */}
+                <div className="lg:col-span-2 space-y-6">
+                  <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h3 className="font-semibold text-gray-800 mb-4">Öğrenci Bilgileri</h3>
+                    <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+                      <p className="font-medium text-gray-800 text-lg">{students[0].name}</p>
+                      <p className="text-sm text-gray-500 mt-2">
+                        Konular: {students[0].topics.join(', ')}
+                      </p>
                     </div>
                   </div>
-                )}
-              </div>
 
-              {/* Sağ: Tasarım Ayarları */}
+                  {selectedStudentId && (
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-fade-in">
+                      <h3 className="font-semibold text-gray-800 mb-4 flex items-center justify-between">
+                        <span>Otomatik Soru Seçimi</span>
+                        <span className="text-sm font-normal text-gray-500">
+                          Toplam Seçilen: {Object.values(quotas).reduce((a, b) => a + (parseInt(b) || 0), 0)} Soru
+                        </span>
+                      </h3>
+                      
+                      <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <p className="text-sm text-blue-800 flex items-center gap-2">
+                          <CheckCircle size={16} />
+                          <span>Her konu için mevcut tüm sorular otomatik olarak seçilmiştir.</span>
+                        </p>
+                      </div>
+                      
+                      <div className="space-y-4">
+                        {students.find(s => s.id === selectedStudentId)?.topics.map((topic, idx) => {
+                          const topicLower = topic.toLowerCase();
+                          const availableCount = images.filter(img => img.topic.toLowerCase() === topicLower).length;
+                          const selectedCount = quotas[topicLower] || 0;
+                          
+                          return (
+                            <div key={idx} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100">
+                              <div>
+                                <p className="font-medium text-gray-800 capitalize">{topic}</p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {selectedCount > 0 ? (
+                                    <span className="text-green-600 font-semibold">{selectedCount} soru seçildi</span>
+                                  ) : (
+                                    <span className="text-amber-600">Bu konu için soru bulunamadı</span>
+                                  )}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <label className="text-sm text-gray-600">Havuz:</label>
+                                <span className="text-sm font-semibold text-gray-700">{availableCount} soru</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {students.find(s => s.id === selectedStudentId)?.topics.length === 0 && (
+                          <p className="text-sm text-amber-600 p-4 bg-amber-50 rounded-lg">Bu öğrenci için eksik konu girilmemiş.</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Sağ: Tasarım Ayarları */}
+                <div className="space-y-6">
+                  <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h3 className="font-semibold text-gray-800 mb-4">Sayfa Tasarımı</h3>
+                    
+                    <div className="space-y-5">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Sütun Düzeni</label>
+                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                          <p className="text-sm text-blue-800 font-medium">2 Sütun (Sabit)</p>
+                          <p className="text-xs text-blue-600 mt-1">Her sayfada 4 soru (2x2) gösterilir</p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Başlık Metni</label>
+                        <input 
+                          type="text" 
+                          value={design.headerText}
+                          onChange={(e) => setDesign({...design, headerText: e.target.value})}
+                          className="w-full p-2.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-3 pt-2">
+                        <input 
+                          type="checkbox" 
+                          id="showName"
+                          checked={design.showStudentName}
+                          onChange={(e) => setDesign({...design, showStudentName: e.target.checked})}
+                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 border-gray-300"
+                        />
+                        <label htmlFor="showName" className="text-sm text-gray-700 cursor-pointer">
+                          Öğrenci Adını Başlıkta Göster
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 p-6 rounded-xl border border-blue-100">
+                    <div className="flex items-start gap-3">
+                      <CheckCircle className="text-blue-600 shrink-0 mt-0.5" size={20} />
+                      <div>
+                        <h4 className="font-semibold text-blue-900 text-sm mb-1">Her şey hazır mı?</h4>
+                        <p className="text-xs text-blue-800/80 mb-4">
+                          Ayarlarınızı tamamladıktan sonra "Önizleme & PDF" sekmesine geçerek fasikülü oluşturabilirsiniz.
+                        </p>
+                        <button 
+                          onClick={() => setActiveTab('preview')}
+                          className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                        >
+                          Önizlemeye Geç
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              // Birden fazla öğrenci durumu - Kart sistemi
               <div className="space-y-6">
+                {/* Tasarım Ayarları - Üstte */}
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                  <h3 className="font-semibold text-gray-800 mb-4">3. Sayfa Tasarımı</h3>
+                  <h3 className="font-semibold text-gray-800 mb-4">Sayfa Tasarımı</h3>
                   
-                  <div className="space-y-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Sütun Düzeni</label>
                       <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
@@ -1084,25 +1374,77 @@ Mehmet Can	Trigonometri"
                   </div>
                 </div>
 
-                <div className="bg-blue-50 p-6 rounded-xl border border-blue-100">
-                  <div className="flex items-start gap-3">
-                    <CheckCircle className="text-blue-600 shrink-0 mt-0.5" size={20} />
-                    <div>
-                      <h4 className="font-semibold text-blue-900 text-sm mb-1">Her şey hazır mı?</h4>
-                      <p className="text-xs text-blue-800/80 mb-4">
-                        Ayarlarınızı tamamladıktan sonra "Önizleme & PDF" sekmesine geçerek fasikülü oluşturabilirsiniz.
-                      </p>
-                      <button 
-                        onClick={() => setActiveTab('preview')}
-                        className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
-                      >
-                        Önizlemeye Geç
-                      </button>
-                    </div>
+                {/* Öğrenci Kartları */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Öğrenciler ({students.length})</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {students.map(student => {
+                      const studentQuestions = getQuestionsForStudent(student.id);
+                      const totalQuestions = studentQuestions.length;
+                      
+                      return (
+                        <div key={student.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+                          <div className="mb-4">
+                            <h4 className="text-lg font-bold text-gray-800 mb-2">{student.name}</h4>
+                            <div className="space-y-2">
+                              {student.topics.length > 0 ? (
+                                student.topics.map((topic, idx) => {
+                                  const topicLower = topic.toLowerCase();
+                                  const availableCount = images.filter(img => img.topic.toLowerCase() === topicLower).length;
+                                  return (
+                                    <div key={idx} className="flex items-center justify-between text-sm">
+                                      <span className="text-gray-600 capitalize">{topic}</span>
+                                      <span className={`font-semibold ${availableCount > 0 ? 'text-green-600' : 'text-amber-600'}`}>
+                                        {availableCount} soru
+                                      </span>
+                                    </div>
+                                  );
+                                })
+                              ) : (
+                                <p className="text-xs text-amber-600">Konu girilmemiş</p>
+                              )}
+                            </div>
+                            <div className="mt-3 pt-3 border-t border-gray-200">
+                              <p className="text-xs text-gray-500">
+                                Toplam: <span className="font-semibold text-gray-700">{totalQuestions} soru</span>
+                              </p>
+                            </div>
+                          </div>
+                          
+                          <div className="flex flex-col gap-2">
+                            <button
+                              onClick={() => handlePreviewForStudent(student.id)}
+                              disabled={totalQuestions === 0}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors shadow-sm"
+                            >
+                              <Printer size={18} />
+                              PDF Önizle
+                            </button>
+                            <button
+                              onClick={() => handleDownloadPDFForStudent(student.id)}
+                              disabled={totalQuestions === 0 || generatingPDFForStudent === student.id}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors shadow-sm"
+                            >
+                              {generatingPDFForStudent === student.id ? (
+                                <>
+                                  <Loader2 size={18} className="animate-spin" />
+                                  <span>Oluşturuluyor...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Download size={18} />
+                                  PDF İndir
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
