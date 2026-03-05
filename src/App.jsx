@@ -373,40 +373,44 @@ export default function App() {
 
         // Sayfa içeriğini oluştur
         tempPageElement.innerHTML = `
-          <div class="p-[2mm] font-sans h-full flex flex-col bg-white relative w-full box-border" style="width: 100%; maxWidth: 100%;">
-            <!-- ÜST BAŞLIK -->
-            <div class="mb-4 pb-3 border-b-2 border-gray-300">
-              <div class="text-center">
-                <h1 class="text-3xl font-black text-blue-900 tracking-wide uppercase mb-2" style="letter-spacing: 0.15em;">
-                  REKABETÇİ DENEMELERİ
-                </h1>
-                <div class="w-24 h-1 bg-blue-700 mx-auto"></div>
+          <div class="p-[2mm] font-sans flex flex-col bg-white relative w-full box-border" style="width: 100%; maxWidth: 100%; min-height: 297mm; height: 100%;">
+            <!-- ÜST BAŞLIK - YENİ TASARIM -->
+            <div class="mb-4 relative" style="background: linear-gradient(135deg, #141b35 0%, #8e34e9 100%); padding: 16px 20px; border-radius: 8px; margin-bottom: 16px;">
+              <div class="flex items-center justify-between">
+                <img src="/rbdlogo.png" alt="RBD Logo" style="height: 50px; width: auto; object-fit: contain; flex-shrink: 0;" />
+                <div class="text-center flex-1">
+                  <h1 class="text-2xl font-black text-white tracking-wide uppercase mb-2" style="letter-spacing: 0.15em; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                    REKABETÇİ DENEMELERİ
+                  </h1>
+                  <div class="w-32 h-1 bg-white mx-auto" style="opacity: 0.9; border-radius: 2px;"></div>
+                </div>
+                <div class="text-right" style="flex-shrink: 0; width: auto;">
+                  <div class="text-sm font-bold text-white uppercase" style="font-size: 11px; letter-spacing: 0.1em; line-height: 1.4;">
+                    Öğrenciye Özel<br/>Çalışma Fasikülü
+                  </div>
+                </div>
               </div>
             </div>
 
-            <!-- ÖĞRENCİ BİLGİ BÖLÜMÜ -->
+            <!-- ÖĞRENCİ BİLGİ BÖLÜMÜ - YENİ TASARIM -->
             ${design.showStudentName ? `
-              <div class="mb-4 pb-3 border-b border-gray-200">
+              <div class="mb-4" style="background: linear-gradient(135deg, rgba(142, 52, 233, 0.1) 0%, rgba(20, 27, 53, 0.1) 100%); padding: 12px 16px; border-radius: 8px; border-left: 4px solid #8e34e9; margin-bottom: 16px;">
                 <div class="flex justify-between items-center">
                   <div>
-                    <div class="text-xs text-gray-500 uppercase font-semibold mb-1">Öğrenci Adı Soyadı</div>
-                    <div class="text-lg font-bold text-gray-900">${students.find(s => s.id === selectedStudentId)?.name || ''}</div>
+                    <div class="text-xs uppercase font-semibold mb-1" style="color: #8e34e9;">Öğrenci Adı Soyadı</div>
+                    <div class="text-lg font-bold" style="color: #141b35;">${students.find(s => s.id === selectedStudentId)?.name || ''}</div>
                   </div>
                   <div class="text-right">
-                    <div class="text-xs text-gray-500 uppercase font-semibold mb-1">Tarih</div>
-                    <div class="text-sm font-semibold text-gray-700">${new Date().toLocaleDateString('tr-TR')}</div>
+                    <div class="text-xs uppercase font-semibold mb-1" style="color: #8e34e9;">Tarih</div>
+                    <div class="text-sm font-semibold" style="color: #141b35;">${new Date().toLocaleDateString('tr-TR')}</div>
                   </div>
-                </div>
-                <div class="mt-3 pt-3 border-t border-gray-100 text-center">
-                  <span class="text-xs text-gray-600 font-medium">Toplam Soru Sayısı: </span>
-                  <span class="text-sm font-bold text-blue-700">${previewQuestions.length}</span>
                 </div>
               </div>
             ` : ''}
 
             <!-- SORULAR - 2 SÜTUN (2x2 = 4 soru) -->
             <div class="flex-1 flex relative w-full box-border">
-              <div class="absolute left-1/2 top-0 bottom-0 w-[1px] bg-gray-400 transform -translate-x-1/2"></div>
+              <div class="absolute left-1/2 top-0 bottom-0 w-[1px] transform -translate-x-1/2" style="background-color: #8e34e9;"></div>
               
               <!-- SOL SÜTUN (İlk 2 soru) -->
               <div class="w-1/2 pr-[2mm] flex flex-col gap-4 box-border flex-shrink-0" style="width: 50%; box-sizing: border-box;">
@@ -449,15 +453,15 @@ export default function App() {
               </div>
             </div>
 
-            <!-- ALT BİLGİ - FOOTER -->
-            <div class="mt-8 pt-4 border-t border-gray-300">
-              <div class="flex justify-between items-center text-xs text-gray-500">
-                <div class="text-center flex-1">
-                  <span class="font-medium">Bu fasikül </span>
-                  <span class="font-bold text-gray-700">${students.find(s => s.id === selectedStudentId)?.name || ''}</span>
-                  <span class="font-medium"> için özel olarak hazırlanmıştır.</span>
+            <!-- ALT BİLGİ - FOOTER - YENİ TASARIM -->
+            <div class="mt-auto relative" style="background: linear-gradient(135deg, #141b35 0%, #8e34e9 100%); padding: 14px 20px; border-radius: 8px; margin-top: auto;">
+              <div class="flex justify-between items-center text-xs">
+                <div class="text-left">
+                  <span class="font-medium text-white" style="opacity: 0.95;">Bu fasikül </span>
+                  <span class="font-bold text-white">${students.find(s => s.id === selectedStudentId)?.name || ''}</span>
+                  <span class="font-medium text-white" style="opacity: 0.95;"> için özel olarak hazırlanmıştır.</span>
                 </div>
-                <div class="text-gray-400 font-bold uppercase tracking-wider ml-4">
+                <div class="text-white font-bold uppercase tracking-wider ml-4" style="font-size: 11px; letter-spacing: 0.2em; opacity: 0.95;">
                   Başarılar Dileriz
                 </div>
               </div>
@@ -491,7 +495,7 @@ export default function App() {
             });
           }
         });
-
+        
         const imgData = canvas.toDataURL('image/png');
         const imgWidth = canvas.width;
         const imgHeight = canvas.height;
@@ -1017,34 +1021,38 @@ Mehmet Can	Trigonometri"
                   className="w-[210mm] min-h-[297mm] mx-auto bg-white shadow-lg print:shadow-none print:break-after-page"
                   style={{ width: '210mm', maxWidth: '210mm', minWidth: '210mm', boxSizing: 'border-box' }}
                 >
-                  <div className="p-[2mm] font-sans h-full flex flex-col bg-white relative w-full box-border" style={{ width: '100%', maxWidth: '100%' }}>
+                  <div className="p-[2mm] font-sans flex flex-col bg-white relative w-full box-border" style={{ width: '100%', maxWidth: '100%', minHeight: '297mm', height: '100%' }}>
                     
-                    {/* ÜST BAŞLIK - REKABETÇİ DENEMELERİ */}
-                    <div className="mb-4 pb-3 border-b-2 border-gray-300">
-                      <div className="text-center">
-                        <h1 className="text-3xl font-black text-blue-900 tracking-wide uppercase mb-2" style={{ letterSpacing: '0.15em' }}>
-                          REKABETÇİ DENEMELERİ
-                        </h1>
-                        <div className="w-24 h-1 bg-blue-700 mx-auto"></div>
+                    {/* ÜST BAŞLIK - REKABETÇİ DENEMELERİ - YENİ TASARIM */}
+                    <div className="mb-4 relative" style={{ background: 'linear-gradient(135deg, #141b35 0%, #8e34e9 100%)', padding: '16px 20px', borderRadius: '8px', marginBottom: '16px' }}>
+                      <div className="flex items-center justify-between">
+                        <img src="/rbdlogo.png" alt="RBD Logo" style={{ height: '50px', width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
+                        <div className="text-center flex-1">
+                          <h1 className="text-2xl font-black text-white tracking-wide uppercase mb-2" style={{ letterSpacing: '0.15em', textShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>
+                            REKABETÇİ DENEMELERİ
+                          </h1>
+                          <div className="w-32 h-1 bg-white mx-auto" style={{ opacity: 0.9, borderRadius: '2px' }}></div>
+                        </div>
+                        <div className="text-right" style={{ flexShrink: 0, width: 'auto' }}>
+                          <div className="text-sm font-bold text-white uppercase" style={{ fontSize: '11px', letterSpacing: '0.1em', lineHeight: '1.4' }}>
+                            Öğrenciye Özel<br/>Çalışma Fasikülü
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    {/* ÖĞRENCİ BİLGİ BÖLÜMÜ */}
+                    {/* ÖĞRENCİ BİLGİ BÖLÜMÜ - YENİ TASARIM */}
                     {design.showStudentName && (
-                      <div className="mb-4 pb-3 border-b border-gray-200">
+                      <div className="mb-4" style={{ background: 'linear-gradient(135deg, rgba(142, 52, 233, 0.1) 0%, rgba(20, 27, 53, 0.1) 100%)', padding: '12px 16px', borderRadius: '8px', borderLeft: '4px solid #8e34e9', marginBottom: '16px' }}>
                         <div className="flex justify-between items-center">
                           <div>
-                            <div className="text-xs text-gray-500 uppercase font-semibold mb-1">Öğrenci Adı Soyadı</div>
-                            <div className="text-lg font-bold text-gray-900">{students.find(s => s.id === selectedStudentId)?.name}</div>
+                            <div className="text-xs uppercase font-semibold mb-1" style={{ color: '#8e34e9' }}>Öğrenci Adı Soyadı</div>
+                            <div className="text-lg font-bold" style={{ color: '#141b35' }}>{students.find(s => s.id === selectedStudentId)?.name}</div>
                           </div>
                           <div className="text-right">
-                            <div className="text-xs text-gray-500 uppercase font-semibold mb-1">Tarih</div>
-                            <div className="text-sm font-semibold text-gray-700">{new Date().toLocaleDateString('tr-TR')}</div>
+                            <div className="text-xs uppercase font-semibold mb-1" style={{ color: '#8e34e9' }}>Tarih</div>
+                            <div className="text-sm font-semibold" style={{ color: '#141b35' }}>{new Date().toLocaleDateString('tr-TR')}</div>
                           </div>
-                        </div>
-                        <div className="mt-3 pt-3 border-t border-gray-100 text-center">
-                          <span className="text-xs text-gray-600 font-medium">Toplam Soru Sayısı: </span>
-                          <span className="text-sm font-bold text-blue-700">{previewQuestions.length}</span>
                         </div>
                       </div>
                     )}
@@ -1052,7 +1060,7 @@ Mehmet Can	Trigonometri"
                     {/* SORULAR - 2 SÜTUN (2x2 = 4 soru) */}
                     <div className="flex-1 flex relative w-full box-border">
                       {/* ORTA ÇİZGİ */}
-                      <div className="absolute left-1/2 top-0 bottom-0 w-[1px] bg-gray-400 transform -translate-x-1/2"></div>
+                      <div className="absolute left-1/2 top-0 bottom-0 w-[1px] transform -translate-x-1/2" style={{ backgroundColor: '#8e34e9' }}></div>
                       
                       {/* SOL SÜTUN (İlk 2 soru) */}
                       <div className="w-1/2 pr-[2mm] flex flex-col gap-4 box-border flex-shrink-0" style={{ width: '50%', boxSizing: 'border-box' }}>
@@ -1101,15 +1109,15 @@ Mehmet Can	Trigonometri"
                       </div>
                     </div>
 
-                    {/* ALT BİLGİ - FOOTER */}
-                    <div className="mt-8 pt-4 border-t border-gray-300">
-                      <div className="flex justify-between items-center text-xs text-gray-500">
-                        <div className="text-center flex-1">
-                          <span className="font-medium">Bu fasikül </span>
-                          <span className="font-bold text-gray-700">{students.find(s => s.id === selectedStudentId)?.name}</span>
-                          <span className="font-medium"> için özel olarak hazırlanmıştır.</span>
+                    {/* ALT BİLGİ - FOOTER - YENİ TASARIM */}
+                    <div className="mt-auto relative" style={{ background: 'linear-gradient(135deg, #141b35 0%, #8e34e9 100%)', padding: '14px 20px', borderRadius: '8px', marginTop: 'auto' }}>
+                      <div className="flex justify-between items-center text-xs">
+                        <div className="text-left">
+                          <span className="font-medium text-white" style={{ opacity: 0.95 }}>Bu fasikül </span>
+                          <span className="font-bold text-white">{students.find(s => s.id === selectedStudentId)?.name}</span>
+                          <span className="font-medium text-white" style={{ opacity: 0.95 }}> için özel olarak hazırlanmıştır.</span>
                         </div>
-                        <div className="text-gray-400 font-bold uppercase tracking-wider ml-4">
+                        <div className="text-white font-bold uppercase tracking-wider ml-4" style={{ fontSize: '11px', letterSpacing: '0.2em', opacity: 0.95 }}>
                           Başarılar Dileriz
                         </div>
                       </div>
