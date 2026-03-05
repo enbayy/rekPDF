@@ -1443,6 +1443,62 @@ Mehmet Can	Trigonometri"
                     })}
                   </div>
                 </div>
+
+                {/* Tüm PDF'leri İndir Butonu - Sayfanın En Altı */}
+                {students.length > 1 && (
+                  <div className="mt-8 pt-8 border-t border-gray-200">
+                    <div className="bg-gradient-to-r from-green-50 to-blue-50 p-6 rounded-xl border border-green-200">
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-bold text-gray-800 mb-1">Tüm Öğrenciler için PDF İndir</h3>
+                          <p className="text-sm text-gray-600">
+                            Tüm {students.length} öğrenci için PDF'leri tek seferde indirin
+                          </p>
+                        </div>
+                        <button
+                          onClick={handleDownloadAllPDFs}
+                          disabled={students.length === 0 || isGeneratingAllPDFs || images.length === 0}
+                          className="flex items-center justify-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors shadow-lg hover:shadow-xl min-w-[200px]"
+                        >
+                          {isGeneratingAllPDFs ? (
+                            <>
+                              <Loader2 size={20} className="animate-spin" />
+                              <span>
+                                PDF Oluşturuluyor... ({pdfGenerationProgress.current}/{pdfGenerationProgress.total})
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Download size={20} />
+                              <span>Tüm PDF'leri İndir</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      {isGeneratingAllPDFs && pdfGenerationProgress.total > 0 && (
+                        <div className="mt-4">
+                          <div className="w-full bg-gray-200 rounded-full h-3">
+                            <div 
+                              className="bg-green-600 h-3 rounded-full transition-all duration-300"
+                              style={{ width: `${(pdfGenerationProgress.current / pdfGenerationProgress.total) * 100}%` }}
+                            ></div>
+                          </div>
+                          <p className="text-xs text-gray-600 mt-2 text-center">
+                            {pdfGenerationProgress.current} / {pdfGenerationProgress.total} öğrenci için PDF oluşturuldu
+                          </p>
+                        </div>
+                      )}
+                      {images.length === 0 && (
+                        <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                          <p className="text-xs text-amber-800 flex items-center gap-2">
+                            <AlertCircle size={16} />
+                            PDF oluşturmak için önce soruları yükleyin.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
