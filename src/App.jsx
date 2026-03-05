@@ -333,6 +333,193 @@ export default function App() {
     setPreviewQuestions(finalQs);
   }, [selectedStudentId, quotas, images, students]);
 
+  // Soru boyutunu hesapla (0-1000 arası değer)
+  const calculateQuestionSize = (q) => {
+    if (q.src) {
+      const base64Length = q.src.length;
+      if (base64Length < 30000) return 150; // Çok küçük görsel
+      if (base64Length < 80000) return 250; // Küçük görsel
+      if (base64Length < 150000) return 400; // Orta görsel
+      return 600; // Büyük görsel
+    } else if (q.text) {
+      const textLength = q.text.length;
+      const lineCount = (q.text.match(/\n/g) || []).length + 1;
+      if (textLength < 150 && lineCount < 5) return 120; // Çok kısa metin
+      if (textLength < 300 && lineCount < 10) return 200; // Kısa metin
+      if (textLength < 600 && lineCount < 20) return 350; // Orta metin
+      return 550; // Uzun metin
+    }
+    return 300; // Varsayılan
+  };
+
+  // Soru boyutlarını kontrol ederek sayfa başına soru sayısını belirle (optimize edilmiş)
+  const calculateQuestionsPerPage = (questions) => {
+    if (questions.length === 0) return 4;
+    
+    let totalSize = 0;
+    let smallCount = 0;
+    let largeCount = 0;
+    let minSize = Infinity;
+    let maxSize = 0;
+    
+    questions.forEach(q => {
+      const size = calculateQuestionSize(q);
+      totalSize += size;
+      if (size < minSize) minSize = size;
+      if (size > maxSize) maxSize = size;
+      if (size < 200) smallCount++;
+      if (size >= 400) largeCount++;
+    });
+    
+    const avgSize = totalSize / questions.length;
+    const smallRatio = smallCount / questions.length;
+    const largeRatio = largeCount / questions.length;
+    const sizeRange = maxSize - minSize;
+    
+    // Büyük sorular varsa 4 soru/sayfa
+    if (largeRatio > 0.3 || avgSize >= 400) {
+      return 4; // 2x2 düzen - büyük sorular için
+    }
+    
+    // Küçük sorular için boşlukları doldur ama çok sıkışık yapma
+    // Sorular çok küçükse ve boyutları benzer ise daha fazla soru ekle
+    if (smallRatio > 0.7 && avgSize < 200 && sizeRange < 100) {
+      return 10; // 5x2 düzen - çok küçük ve benzer boyutlu sorular için
+    } else if (smallRatio > 0.7 || avgSize < 200) {
+      return 8; // 4x2 düzen - küçük sorular için
+    } else if (smallRatio > 0.5 || avgSize < 250) {
+      return 6; // 3x2 düzen - orta-küçük sorular için
+    } else if (smallRatio > 0.3 || avgSize < 300) {
+      return 4; // 2x2 düzen - orta sorular için
+    } else {
+      return 4; // 2x2 düzen - varsayılan
+    }
+  };
+
+  // Sayfa için dinamik soru yerleştirme - boşlukları doldur
+  const fillPageWithQuestions = (remainingQuestions, baseQuestionsPerPage) => {
+    if (remainingQuestions.length === 0) return { pageQuestions: [], remaining: [] };
+    
+    // İlk olarak temel sayıda soru al
+    let pageQuestions = remainingQuestions.slice(0, baseQuestionsPerPage);
+    let remaining = remainingQuestions.slice(baseQuestionsPerPage);
+    
+    // Sayfadaki soruları analiz et
+    let pageTotalSize = 0;
+    let pageSmallCount = 0;
+    let pageMaxSize = 0;
+    let pageMinSize = Infinity;
+    
+    pageQuestions.forEach(q => {
+      const size = calculateQuestionSize(q);
+      pageTotalSize += size;
+      if (size < 200) pageSmallCount++;
+      if (size > pageMaxSize) pageMaxSize = size;
+      if (size < pageMinSize) pageMinSize = size;
+    });
+    
+    const pageAvgSize = pageTotalSize / pageQuestions.length;
+    const pageSmallRatio = pageSmallCount / pageQuestions.length;
+    
+    // Eğer sayfadaki sorular küçükse ve sayfa dolu değilse, daha fazla soru ekle
+    // Özellikle 4 küçük soru varsa ve yatay/küçük sorular ise, daha agresif ekle
+    // Koşul: Sayfada küçük sorular varsa veya ortalama boyut küçükse
+    // Özellikle sayfada 4 soru varsa ve bunlar küçükse, mutlaka daha fazla soru ekle
+    const isFourSmallQuestions = pageQuestions.length === 4 && pageSmallRatio >= 0.75 && pageAvgSize < 300;
+    const shouldFillPage = (isFourSmallQuestions || pageSmallRatio > 0.5 || pageAvgSize < 300) && remaining.length > 0;
+    
+    if (shouldFillPage) {
+      // Kalan sorulardan küçük/orta olanları bul (daha esnek)
+      const smallRemaining = remaining.filter(q => {
+        const size = calculateQuestionSize(q);
+        return size < 300; // 300'den küçük sorular (daha esnek)
+      });
+      
+      if (smallRemaining.length > 0) {
+        // Küçük sorular varsa, sayfaya sığacak kadar ekle
+        // Çok küçük sorular için daha fazla soru ekle - boşluk kalmaması için
+        let maxQuestions;
+        if (pageAvgSize < 150) {
+          maxQuestions = 14; // Çok küçük sorular için 14 soru (7x2) - maksimum doldurma
+        } else if (pageAvgSize < 200) {
+          maxQuestions = 12; // Küçük sorular için 12 soru (6x2)
+        } else if (pageAvgSize < 250) {
+          maxQuestions = 10; // Orta-küçük sorular için 10 soru (5x2)
+        } else {
+          maxQuestions = 8; // Orta sorular için 8 soru (4x2)
+        }
+        
+        const additionalCount = Math.min(smallRemaining.length, maxQuestions - pageQuestions.length);
+        
+        if (additionalCount > 0) {
+          pageQuestions = [...pageQuestions, ...smallRemaining.slice(0, additionalCount)];
+          // Eklenen soruları remaining'den çıkar
+          const addedIds = new Set(smallRemaining.slice(0, additionalCount).map(q => q.id));
+          remaining = remaining.filter(q => !addedIds.has(q.id));
+        }
+      } else if (remaining.length > 0) {
+        // Küçük soru yoksa ama büyük sorular varsa, onları ekle
+        const maxQuestions = 6; // Büyük sorular için maksimum 6 soru
+        const additionalCount = Math.min(remaining.length, maxQuestions - pageQuestions.length);
+        
+        if (additionalCount > 0) {
+          pageQuestions = [...pageQuestions, ...remaining.slice(0, additionalCount)];
+          remaining = remaining.slice(additionalCount);
+        }
+      }
+    }
+    
+    return { pageQuestions, remaining };
+  };
+
+  // Sayfa soruları için gap değerini hesapla (soru sayısına ve boyutuna göre optimize)
+  const calculateGapForPage = (pageQuestions, questionsPerPage) => {
+    if (pageQuestions.length === 0) return '20px';
+    
+    let maxSize = 0;
+    let minSize = Infinity;
+    let totalSize = 0;
+    
+    pageQuestions.forEach(q => {
+      const size = calculateQuestionSize(q);
+      totalSize += size;
+      if (size > maxSize) maxSize = size;
+      if (size < minSize) minSize = size;
+    });
+    
+    const avgSize = totalSize / pageQuestions.length;
+    
+    // Sayfa başına soru sayısına göre gap ayarla
+    // Daha fazla soru varsa gap'i biraz azalt ama çok sıkışık yapma
+    if (questionsPerPage >= 14) {
+      // Çok fazla soru varsa (14 soru) - minimum boşluk ama okunabilir
+      if (maxSize >= 200) return '10px';
+      return '8px';
+    } else if (questionsPerPage >= 12) {
+      // Çok fazla soru varsa (12 soru) - minimum boşluk ama okunabilir
+      if (maxSize >= 200) return '12px';
+      return '10px';
+    } else if (questionsPerPage >= 10) {
+      // Çok fazla soru varsa (10 soru) - orta boşluk
+      if (maxSize >= 300) return '18px';
+      return '14px';
+    } else if (questionsPerPage >= 8) {
+      // 8 soru varsa - yeterli boşluk
+      if (maxSize >= 300) return '20px';
+      return '16px';
+    } else if (questionsPerPage >= 6) {
+      // 6 soru varsa - normal boşluk
+      if (maxSize >= 400) return '24px';
+      if (maxSize >= 300) return '20px';
+      return '18px';
+    } else {
+      // 4 soru varsa - rahat boşluk
+      if (maxSize >= 400) return '24px';
+      if (maxSize >= 300) return '22px';
+      return '20px';
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -343,11 +530,17 @@ export default function App() {
     setIsGeneratingPDF(true);
     
     try {
-      // Soruları 4'lü gruplara böl
-      const questionsPerPage = 4;
+      // Soru boyutlarına göre temel sayfa başına soru sayısını belirle
+      const baseQuestionsPerPage = calculateQuestionsPerPage(previewQuestions);
+      
+      // Dinamik sayfa oluşturma - boşlukları doldur
       const pages = [];
-      for (let i = 0; i < previewQuestions.length; i += questionsPerPage) {
-        pages.push(previewQuestions.slice(i, i + questionsPerPage));
+      let remainingQuestions = [...previewQuestions];
+      
+      while (remainingQuestions.length > 0) {
+        const result = fillPageWithQuestions(remainingQuestions, baseQuestionsPerPage);
+        pages.push(result.pageQuestions);
+        remainingQuestions = result.remaining;
       }
 
       const pdf = new jsPDF('p', 'mm', 'a4');
@@ -356,8 +549,13 @@ export default function App() {
       const elementWidth = 794; // 210mm in pixels at 96 DPI
 
       // Her sayfa için ayrı ayrı işle
+      let globalQuestionIndex = 0; // Global soru indexi
       for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
         const pageQuestions = pages[pageIndex];
+        const actualQuestionsPerPage = pageQuestions.length; // Gerçek soru sayısı
+        
+        // Bu sayfa için gap değerini hesapla (soru boyutlarına ve sayısına göre optimize)
+        const gapValue = calculateGapForPage(pageQuestions, actualQuestionsPerPage);
         
         // Geçici bir sayfa elementi oluştur
         const tempPageElement = document.createElement('div');
@@ -408,27 +606,27 @@ export default function App() {
               </div>
             ` : ''}
 
-            <!-- SORULAR - 2 SÜTUN (2x2 = 4 soru) -->
+            <!-- SORULAR - 2 SÜTUN (Dinamik soru sayısı) -->
             <div class="flex-1 flex relative w-full box-border">
               <!-- ÜST ÇİZGİ -->
-              <div class="absolute left-1/2 top-0 w-[1px] transform -translate-x-1/2" style="background-color: #8e34e9; height: 50%;"></div>
+              <div class="absolute left-1/2 top-0 w-[1px] transform -translate-x-1/2" style="background-color: #8e34e9; height: calc(50% - 120px);"></div>
               <!-- ORTA METİN -->
-              <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10" style="background-color: white; padding: 8px 4px;">
+              <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10" style="padding: 8px 4px; background-color: white;">
                 <div class="text-xs font-bold uppercase" style="color: #8e34e9; writing-mode: vertical-rl; text-orientation: upright; font-size: 9px; letter-spacing: 0.1em; line-height: 1.2;">
                   REKABETÇİ DENEMELERİ
                 </div>
               </div>
               <!-- ALT ÇİZGİ -->
-              <div class="absolute left-1/2 bottom-0 w-[1px] transform -translate-x-1/2" style="background-color: #8e34e9; height: 50%;"></div>
+              <div class="absolute left-1/2 bottom-0 w-[1px] transform -translate-x-1/2" style="background-color: #8e34e9; top: calc(50% + 120px); height: calc(50% - 120px);"></div>
               
-              <!-- SOL SÜTUN (İlk 2 soru) -->
-              <div class="w-1/2 pr-[2mm] flex flex-col gap-4 box-border flex-shrink-0" style="width: 50%; box-sizing: border-box;">
-                ${pageQuestions.slice(0, 2).map((q, idx) => {
-                  const globalIndex = pageIndex * questionsPerPage + idx;
+              <!-- SOL SÜTUN -->
+              <div class="w-1/2 pr-[2mm] flex flex-col box-border flex-shrink-0" style="width: 50%; box-sizing: border-box; gap: ${gapValue};">
+                ${pageQuestions.slice(0, Math.ceil(actualQuestionsPerPage / 2)).map((q, idx) => {
+                  const currentGlobalIndex = globalQuestionIndex + idx;
                   return `
                     <div class="break-inside-avoid flex items-start gap-2 w-full">
                       <span class="text-gray-900 font-bold text-sm flex-shrink-0">
-                        ${globalIndex + 1})
+                        ${currentGlobalIndex + 1})
                       </span>
                       <div class="flex-1">
                         ${q.src ? 
@@ -441,14 +639,14 @@ export default function App() {
                 }).join('')}
               </div>
               
-              <!-- SAĞ SÜTUN (Son 2 soru) -->
-              <div class="w-1/2 pl-[2mm] flex flex-col gap-4 box-border flex-shrink-0" style="width: 50%; box-sizing: border-box;">
-                ${pageQuestions.slice(2, 4).map((q, idx) => {
-                  const globalIndex = pageIndex * questionsPerPage + idx + 2;
+              <!-- SAĞ SÜTUN -->
+              <div class="w-1/2 pl-[2mm] flex flex-col box-border flex-shrink-0" style="width: 50%; box-sizing: border-box; gap: ${gapValue};">
+                ${pageQuestions.slice(Math.ceil(actualQuestionsPerPage / 2), actualQuestionsPerPage).map((q, idx) => {
+                  const currentGlobalIndex = globalQuestionIndex + Math.ceil(actualQuestionsPerPage / 2) + idx;
                   return `
                     <div class="break-inside-avoid flex items-start gap-2 w-full">
                       <span class="text-gray-900 font-bold text-sm flex-shrink-0">
-                        ${globalIndex + 1})
+                        ${currentGlobalIndex + 1})
                       </span>
                       <div class="flex-1">
                         ${q.src ? 
@@ -529,6 +727,9 @@ export default function App() {
         
         // Geçici elementi temizle
         document.body.removeChild(tempPageElement);
+        
+        // Global soru indexini güncelle
+        globalQuestionIndex += actualQuestionsPerPage;
       }
       
       // Öğrenci adını dosya adı olarak kullan
@@ -1015,116 +1216,134 @@ Mehmet Can	Trigonometri"
       `}
         style={{ boxSizing: 'border-box' }}>
         {selectedStudentId && previewQuestions.length > 0 && (() => {
-          // Soruları 4'lü gruplara böl
-          const questionsPerPage = 4;
+          // Soru boyutlarına göre temel sayfa başına soru sayısını belirle
+          const baseQuestionsPerPage = calculateQuestionsPerPage(previewQuestions);
+          
+          // Dinamik sayfa oluşturma - boşlukları doldur
           const pages = [];
-          for (let i = 0; i < previewQuestions.length; i += questionsPerPage) {
-            pages.push(previewQuestions.slice(i, i + questionsPerPage));
+          let remainingQuestions = [...previewQuestions];
+          
+          while (remainingQuestions.length > 0) {
+            const result = fillPageWithQuestions(remainingQuestions, baseQuestionsPerPage);
+            pages.push(result.pageQuestions);
+            remainingQuestions = result.remaining;
           }
+
+          // Global soru indexi
+          let globalQuestionIndex = 0;
 
           return (
             <div className="space-y-8">
-              {pages.map((pageQuestions, pageIndex) => (
-                <div 
-                  key={pageIndex}
-                  className="w-[210mm] min-h-[297mm] mx-auto bg-white shadow-lg print:shadow-none print:break-after-page"
-                  style={{ width: '210mm', maxWidth: '210mm', minWidth: '210mm', boxSizing: 'border-box' }}
-                >
-                  <div className="p-[2mm] font-sans flex flex-col bg-white relative w-full box-border" style={{ width: '100%', maxWidth: '100%', minHeight: '297mm', height: '100%' }}>
-                    
-                    {/* ÜST BAŞLIK - REKABETÇİ DENEMELERİ - YENİ TASARIM */}
-                    <div className="mb-4 relative" style={{ background: 'linear-gradient(135deg, #141b35 0%, #8e34e9 100%)', padding: '16px 20px', borderRadius: '8px', marginBottom: '16px' }}>
-                      <div className="flex items-center justify-between">
-                        <img src="/rbdlogo.png" alt="RBD Logo" style={{ height: '50px', width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
-                        <div className="text-center flex-1">
-                          <h1 className="text-2xl font-black text-white tracking-wide uppercase mb-2" style={{ letterSpacing: '0.15em', textShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>
+              {pages.map((pageQuestions, pageIndex) => {
+                const actualQuestionsPerPage = pageQuestions.length;
+                // Bu sayfa için gap değerini hesapla (soru boyutlarına ve sayısına göre optimize)
+                const gapValue = calculateGapForPage(pageQuestions, actualQuestionsPerPage);
+                
+                // Global index'i hesapla
+                const currentPageStartIndex = globalQuestionIndex;
+                globalQuestionIndex += actualQuestionsPerPage;
+                
+                return (
+                  <div 
+                    key={pageIndex}
+                    className="w-[210mm] min-h-[297mm] mx-auto bg-white shadow-lg print:shadow-none print:break-after-page"
+                    style={{ width: '210mm', maxWidth: '210mm', minWidth: '210mm', boxSizing: 'border-box' }}
+                  >
+                    <div className="p-[2mm] font-sans flex flex-col bg-white relative w-full box-border" style={{ width: '100%', maxWidth: '100%', minHeight: '297mm', height: '100%' }}>
+                      
+                      {/* ÜST BAŞLIK - REKABETÇİ DENEMELERİ - YENİ TASARIM */}
+                      <div className="mb-4 relative" style={{ background: 'linear-gradient(135deg, #141b35 0%, #8e34e9 100%)', padding: '16px 20px', borderRadius: '8px', marginBottom: '16px' }}>
+                        <div className="flex items-center justify-between">
+                          <img src="/rbdlogo.png" alt="RBD Logo" style={{ height: '50px', width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
+                          <div className="text-center flex-1">
+                            <h1 className="text-2xl font-black text-white tracking-wide uppercase mb-2" style={{ letterSpacing: '0.15em', textShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>
+                              REKABETÇİ DENEMELERİ
+                            </h1>
+                            <div className="w-32 h-1 bg-white mx-auto" style={{ opacity: 0.9, borderRadius: '2px' }}></div>
+                          </div>
+                          <div className="text-right" style={{ flexShrink: 0, width: 'auto' }}>
+                            <div className="text-sm font-bold text-white uppercase" style={{ fontSize: '11px', letterSpacing: '0.1em', lineHeight: '1.4' }}>
+                              Öğrenciye Özel<br/>Çalışma Fasikülü
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ÖĞRENCİ BİLGİ BÖLÜMÜ - YENİ TASARIM */}
+                      {design.showStudentName && (
+                        <div className="mb-4" style={{ background: 'linear-gradient(135deg, rgba(142, 52, 233, 0.1) 0%, rgba(20, 27, 53, 0.1) 100%)', padding: '12px 16px', borderRadius: '8px', borderLeft: '4px solid #8e34e9', marginBottom: '16px' }}>
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <div className="text-xs uppercase font-semibold mb-1" style={{ color: '#8e34e9' }}>Öğrenci Adı Soyadı</div>
+                              <div className="text-lg font-bold" style={{ color: '#141b35' }}>{students.find(s => s.id === selectedStudentId)?.name}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs uppercase font-semibold mb-1" style={{ color: '#8e34e9' }}>Tarih</div>
+                              <div className="text-sm font-semibold" style={{ color: '#141b35' }}>{new Date().toLocaleDateString('tr-TR')}</div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* SORULAR - 2 SÜTUN (Dinamik soru sayısı ve boşluk) */}
+                      <div className="flex-1 flex relative w-full box-border">
+                        {/* ÜST ÇİZGİ */}
+                        <div className="absolute left-1/2 top-0 w-[1px] transform -translate-x-1/2" style={{ backgroundColor: '#8e34e9', height: 'calc(50% - 120px)' }}></div>
+                        {/* ORTA METİN */}
+                        <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10" style={{ padding: '8px 4px', backgroundColor: 'white' }}>
+                          <div className="text-xs font-bold uppercase" style={{ color: '#8e34e9', writingMode: 'vertical-rl', textOrientation: 'upright', fontSize: '9px', letterSpacing: '0.1em', lineHeight: '1.2' }}>
                             REKABETÇİ DENEMELERİ
-                          </h1>
-                          <div className="w-32 h-1 bg-white mx-auto" style={{ opacity: 0.9, borderRadius: '2px' }}></div>
-                        </div>
-                        <div className="text-right" style={{ flexShrink: 0, width: 'auto' }}>
-                          <div className="text-sm font-bold text-white uppercase" style={{ fontSize: '11px', letterSpacing: '0.1em', lineHeight: '1.4' }}>
-                            Öğrenciye Özel<br/>Çalışma Fasikülü
                           </div>
                         </div>
-                      </div>
-                    </div>
-
-                    {/* ÖĞRENCİ BİLGİ BÖLÜMÜ - YENİ TASARIM */}
-                    {design.showStudentName && (
-                      <div className="mb-4" style={{ background: 'linear-gradient(135deg, rgba(142, 52, 233, 0.1) 0%, rgba(20, 27, 53, 0.1) 100%)', padding: '12px 16px', borderRadius: '8px', borderLeft: '4px solid #8e34e9', marginBottom: '16px' }}>
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <div className="text-xs uppercase font-semibold mb-1" style={{ color: '#8e34e9' }}>Öğrenci Adı Soyadı</div>
-                            <div className="text-lg font-bold" style={{ color: '#141b35' }}>{students.find(s => s.id === selectedStudentId)?.name}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-xs uppercase font-semibold mb-1" style={{ color: '#8e34e9' }}>Tarih</div>
-                            <div className="text-sm font-semibold" style={{ color: '#141b35' }}>{new Date().toLocaleDateString('tr-TR')}</div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* SORULAR - 2 SÜTUN (2x2 = 4 soru) */}
-                    <div className="flex-1 flex relative w-full box-border">
-                      {/* ÜST ÇİZGİ */}
-                      <div className="absolute left-1/2 top-0 w-[1px] transform -translate-x-1/2" style={{ backgroundColor: '#8e34e9', height: '50%' }}></div>
-                      {/* ORTA METİN */}
-                      <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10" style={{ backgroundColor: 'white', padding: '8px 4px' }}>
-                        <div className="text-xs font-bold uppercase" style={{ color: '#8e34e9', writingMode: 'vertical-rl', textOrientation: 'upright', fontSize: '9px', letterSpacing: '0.1em', lineHeight: '1.2' }}>
-                          REKABETÇİ DENEMELERİ
-                        </div>
-                      </div>
-                      {/* ALT ÇİZGİ */}
-                      <div className="absolute left-1/2 bottom-0 w-[1px] transform -translate-x-1/2" style={{ backgroundColor: '#8e34e9', height: '50%' }}></div>
-                      
-                      {/* SOL SÜTUN (İlk 2 soru) */}
-                      <div className="w-1/2 pr-[2mm] flex flex-col gap-4 box-border flex-shrink-0" style={{ width: '50%', boxSizing: 'border-box' }}>
-                        {pageQuestions.slice(0, 2).map((q, idx) => {
-                          const globalIndex = pageIndex * questionsPerPage + idx;
-                          return (
-                            <div key={globalIndex} className="break-inside-avoid flex items-start gap-2 w-full">
-                              <span className="text-gray-900 font-bold text-sm flex-shrink-0">
-                                {globalIndex + 1})
-                              </span>
-                              <div className="flex-1">
-                                {q.src ? (
-                                  <img src={q.src} alt={q.filename} className="max-w-full h-auto" />
-                                ) : (
-                                  <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap font-mono pdf-text-content" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#1f2937' }}>
-                                    {q.text || 'İçerik yok'}
-                                  </div>
-                                )}
+                        {/* ALT ÇİZGİ */}
+                        <div className="absolute left-1/2 bottom-0 w-[1px] transform -translate-x-1/2" style={{ backgroundColor: '#8e34e9', top: 'calc(50% + 120px)', height: 'calc(50% - 120px)' }}></div>
+                        
+                        {/* SOL SÜTUN */}
+                        <div className="w-1/2 pr-[2mm] flex flex-col box-border flex-shrink-0" style={{ width: '50%', boxSizing: 'border-box', gap: gapValue }}>
+                          {pageQuestions.slice(0, Math.ceil(actualQuestionsPerPage / 2)).map((q, idx) => {
+                            const currentGlobalIndex = currentPageStartIndex + idx;
+                            return (
+                              <div key={currentGlobalIndex} className="break-inside-avoid flex items-start gap-2 w-full">
+                                <span className="text-gray-900 font-bold text-sm flex-shrink-0">
+                                  {currentGlobalIndex + 1})
+                                </span>
+                                <div className="flex-1">
+                                  {q.src ? (
+                                    <img src={q.src} alt={q.filename} className="max-w-full h-auto" />
+                                  ) : (
+                                    <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap font-mono pdf-text-content" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#1f2937' }}>
+                                      {q.text || 'İçerik yok'}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      
-                      {/* SAĞ SÜTUN (Son 2 soru) */}
-                      <div className="w-1/2 pl-[2mm] flex flex-col gap-4 box-border flex-shrink-0" style={{ width: '50%', boxSizing: 'border-box' }}>
-                        {pageQuestions.slice(2, 4).map((q, idx) => {
-                          const globalIndex = pageIndex * questionsPerPage + idx + 2;
-                          return (
-                            <div key={globalIndex} className="break-inside-avoid flex items-start gap-2 w-full">
-                              <span className="text-gray-900 font-bold text-sm flex-shrink-0">
-                                {globalIndex + 1})
-                              </span>
-                              <div className="flex-1">
-                                {q.src ? (
-                                  <img src={q.src} alt={q.filename} className="max-w-full h-auto" />
-                                ) : (
-                                  <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap font-mono pdf-text-content" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#1f2937' }}>
-                                    {q.text || 'İçerik yok'}
-                                  </div>
-                                )}
+                            );
+                          })}
+                        </div>
+                        
+                        {/* SAĞ SÜTUN */}
+                        <div className="w-1/2 pl-[2mm] flex flex-col box-border flex-shrink-0" style={{ width: '50%', boxSizing: 'border-box', gap: gapValue }}>
+                          {pageQuestions.slice(Math.ceil(actualQuestionsPerPage / 2), actualQuestionsPerPage).map((q, idx) => {
+                            const currentGlobalIndex = currentPageStartIndex + Math.ceil(actualQuestionsPerPage / 2) + idx;
+                            return (
+                              <div key={currentGlobalIndex} className="break-inside-avoid flex items-start gap-2 w-full">
+                                <span className="text-gray-900 font-bold text-sm flex-shrink-0">
+                                  {currentGlobalIndex + 1})
+                                </span>
+                                <div className="flex-1">
+                                  {q.src ? (
+                                    <img src={q.src} alt={q.filename} className="max-w-full h-auto" />
+                                  ) : (
+                                    <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap font-mono pdf-text-content" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#1f2937' }}>
+                                      {q.text || 'İçerik yok'}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
 
                     {/* ALT BİLGİ - FOOTER - YENİ TASARIM */}
                     <div className="mt-auto relative" style={{ background: 'linear-gradient(135deg, #141b35 0%, #8e34e9 100%)', padding: '14px 20px', borderRadius: '8px', marginTop: 'auto' }}>
@@ -1142,7 +1361,8 @@ Mehmet Can	Trigonometri"
 
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           );
         })()}
