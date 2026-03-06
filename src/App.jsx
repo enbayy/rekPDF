@@ -126,15 +126,17 @@ export default function App() {
     });
   };
 
-  // OCR ile resimden metin çıkarma
+  // OCR ile resimden metin çıkarma - Geliştirilmiş versiyon
   const extractTextFromImage = async (imageSrc) => {
     try {
       const worker = await createWorker('tur+eng'); // Türkçe ve İngilizce dil desteği
       
-      // OCR ayarlarını optimize et - daha yüksek doğruluk için
-      // pageseg_mode: 6 = Tek düzgün metin bloğu (sorular için ideal)
+      // OCR ayarlarını optimize et - sorular için daha iyi okuma
+      // pageseg_mode: 11 = Sparse text (sorular için ideal - çok sütunlu, karmaşık düzen)
       await worker.setParameters({
-        tessedit_pageseg_mode: '6', // Tek düzgün metin bloğu varsayımı
+        tessedit_pageseg_mode: '11', // Sparse text - sorular için daha iyi
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,;:!?()[]{}+-*/=<>≤≥≠≈±×÷∫∑∏√∞αβγδεθλμπστφωΔΩ∑∏∂∇∈∉⊂⊃∪∩∅∀∃⇒⇔∧∨¬→←↑↓°²³⁴⁵⁶⁷⁸⁹⁰¹²³⁴⁵⁶⁷⁸⁹⁰₀₁₂₃₄₅₆₇₈₉ ÇĞİÖŞÜçğıöşü',
+        preserve_interword_spaces: '1',
       });
       
       // OCR işlemini yap - tüm resmi işle
@@ -158,6 +160,248 @@ export default function App() {
     } catch (error) {
       console.error('OCR hatası:', error);
       return '';
+    }
+  };
+
+  // LGS düzeyinde soru çözme odaklı zorluk analizi
+  const analyzeDifficulty = (text) => {
+    if (!text || text.trim().length === 0) {
+      return 'Bilinmiyor';
+    }
+
+    const textLower = text.toLowerCase();
+    let solutionSteps = 0; // Çözüm adımları sayısı
+    let operationComplexity = 0; // İşlem karmaşıklığı
+    let reasoningRequired = 0; // Mantık/akıl yürütme gereksinimi
+
+    // ============================================
+    // 1. ÇÖZÜM ADIMLARI ANALİZİ (En önemli faktör)
+    // ============================================
+    
+    // Denklem sayısı = çözüm adımları göstergesi
+    const equationCount = (text.match(/=/g) || []).length;
+    if (equationCount > 3) {
+      solutionSteps += 4; // 3+ denklem = çok adımlı çözüm
+      operationComplexity += 2;
+    } else if (equationCount > 1) {
+      solutionSteps += 2; // 2 denklem = orta adımlı
+      operationComplexity += 1;
+    } else if (equationCount === 1) {
+      solutionSteps += 1; // Tek denklem = basit
+    }
+
+    // İşlem işaretleri sayısı (+, -, ×, ÷) = çözüm adımları
+    const operationSigns = (text.match(/[+\-×÷]/g) || []).length;
+    if (operationSigns > 8) {
+      solutionSteps += 3;
+      operationComplexity += 2;
+    } else if (operationSigns > 4) {
+      solutionSteps += 2;
+      operationComplexity += 1;
+    } else if (operationSigns > 0) {
+      solutionSteps += 1;
+    }
+
+    // Parantez sayısı = iç içe işlemler = çok adımlı çözüm
+    const parenthesesCount = (text.match(/\(/g) || []).length;
+    if (parenthesesCount > 4) {
+      solutionSteps += 3;
+      operationComplexity += 2;
+    } else if (parenthesesCount > 2) {
+      solutionSteps += 2;
+      operationComplexity += 1;
+    } else if (parenthesesCount > 0) {
+      solutionSteps += 1;
+    }
+
+    // İç içe parantez = çok karmaşık işlem
+    const nestedParentheses = (text.match(/\([^)]*\([^)]*\)[^)]*\)/g) || []).length;
+    if (nestedParentheses > 0) {
+      solutionSteps += nestedParentheses * 2;
+      operationComplexity += nestedParentheses * 1.5;
+    }
+
+    // ============================================
+    // 2. İŞLEM KARMAŞIKLIĞI ANALİZİ
+    // ============================================
+
+    // Kesirli işlemler (LGS'de zor)
+    const fractionPattern = /(\d+\/\d+|\d+,\d+\/\d+|frac)/g;
+    const fractionCount = (text.match(fractionPattern) || []).length;
+    if (fractionCount > 3) {
+      operationComplexity += 3; // Çok kesirli = zor
+      solutionSteps += 2;
+    } else if (fractionCount > 1) {
+      operationComplexity += 2; // Birkaç kesir = orta
+      solutionSteps += 1;
+    } else if (fractionCount === 1) {
+      operationComplexity += 1; // Tek kesir = kolay
+    }
+
+    // Üslü sayılar (LGS'de orta-zor)
+    const powerPattern = /(\d+\^|\d+\*\*|\d+üzeri|\d+üst|10\^)/gi;
+    const powerCount = (text.match(powerPattern) || []).length;
+    if (powerCount > 2) {
+      operationComplexity += 2.5;
+      solutionSteps += 2;
+    } else if (powerCount > 0) {
+      operationComplexity += 1.5;
+      solutionSteps += 1;
+    }
+
+    // Köklü sayılar (LGS'de orta-zor)
+    const rootPattern = /(√|sqrt|kök|kare kök|küp kök)/gi;
+    const rootCount = (text.match(rootPattern) || []).length;
+    if (rootCount > 2) {
+      operationComplexity += 2.5;
+      solutionSteps += 2;
+    } else if (rootCount > 0) {
+      operationComplexity += 1.5;
+      solutionSteps += 1;
+    }
+
+    // Ondalık sayılar (işlem karmaşıklığı artırır)
+    const decimalCount = (text.match(/\d+[.,]\d+/g) || []).length;
+    if (decimalCount > 3) {
+      operationComplexity += 1;
+    }
+
+    // ============================================
+    // 3. LGS KONU KARMAŞIKLIĞI
+    // ============================================
+
+    // ZOR LGS KONULARI (Çok adımlı çözüm gerektirir)
+    const hardLGSTopics = [
+      'cebirsel ifade', 'cebirsel denklem', 'ikinci derece denklem',
+      'eşitsizlik', 'mutlak değer', 'mutlak değerli eşitsizlik',
+      'fonksiyon', 'doğrusal fonksiyon', 'grafik',
+      'olasılık', 'permütasyon', 'kombinasyon',
+      'veri analizi', 'istatistik', 'ortalama', 'medyan', 'mod',
+      'geometrik şekil', 'alan hesabı', 'hacim hesabı',
+      'benzerlik', 'eşlik', 'dönüşüm'
+    ];
+    
+    const hardTopicCount = hardLGSTopics.filter(term => textLower.includes(term)).length;
+    if (hardTopicCount > 0) {
+      solutionSteps += hardTopicCount * 2;
+      operationComplexity += hardTopicCount * 1.5;
+      reasoningRequired += hardTopicCount * 1;
+    }
+
+    // ORTA LGS KONULARI
+    const mediumLGSTopics = [
+      'oran', 'orantı', 'doğru orantı', 'ters orantı',
+      'yüzde', 'faiz', 'kar', 'zarar',
+      'geometri', 'alan', 'çevre', 'hacim',
+      'grafik', 'tablo', 'veri',
+      'denklem', 'bilinmeyen', 'değişken'
+    ];
+    
+    const mediumTopicCount = mediumLGSTopics.filter(term => textLower.includes(term)).length;
+    if (mediumTopicCount > 0) {
+      solutionSteps += mediumTopicCount * 1;
+      operationComplexity += mediumTopicCount * 0.5;
+    }
+
+    // ============================================
+    // 4. MANTIK/AKIL YÜRÜTME GEREKSİNİMİ
+    // ============================================
+
+    // Problem çözme ifadeleri (akıl yürütme gerektirir)
+    const problemSolvingKeywords = [
+      'kaç', 'kaçtır', 'kaçıncı', 'hangi', 'hangisi',
+      'toplam', 'fark', 'çarpım', 'bölüm',
+      'eğer', 'ise', 'koşul', 'durum', 'şart',
+      'her', 'bazı', 'tüm', 'hiç', 'en az', 'en fazla',
+      'artar', 'azalır', 'değişir', 'sabit'
+    ];
+    
+    const problemKeywordCount = problemSolvingKeywords.filter(keyword => textLower.includes(keyword)).length;
+    if (problemKeywordCount > 4) {
+      reasoningRequired += 3; // Çok fazla akıl yürütme gerektirir
+      solutionSteps += 2;
+    } else if (problemKeywordCount > 2) {
+      reasoningRequired += 2;
+      solutionSteps += 1;
+    } else if (problemKeywordCount > 0) {
+      reasoningRequired += 1;
+    }
+
+    // Koşullu ifadeler (eğer-ise mantığı)
+    const conditionalCount = (text.match(/(eğer|ise|koşul|durum|şart|ancak|sadece)/gi) || []).length;
+    if (conditionalCount > 2) {
+      reasoningRequired += 2;
+      solutionSteps += 1;
+    } else if (conditionalCount > 0) {
+      reasoningRequired += 1;
+    }
+
+    // ============================================
+    // 5. GRAFİK/ŞEKİL OKUMA (LGS'de zor)
+    // ============================================
+
+    const hasGraph = /(grafik|şekil|diagram|çizim|görsel|tablo|sütun|çizgi|pasta)/i.test(text);
+    if (hasGraph) {
+      reasoningRequired += 2; // Grafik okuma = akıl yürütme
+      solutionSteps += 1;
+    }
+
+    // ============================================
+    // 6. ÇOKTAN SEÇMELİ SORU (Genelde daha kolay)
+    // ============================================
+
+    const hasMultipleChoice = /[a-e]\)|\(a\)|\(b\)|\(c\)|\(d\)|\(e\)|seçenek/i.test(text);
+    // Çoktan seçmeli sorular genelde daha kolay ama karmaşıksa zor olabilir
+    // Bu durumda diğer faktörler zaten zorluğu belirler
+
+    // ============================================
+    // 7. FORMÜL KULLANIMI (Çözüm karmaşıklığı)
+    // ============================================
+
+    const formulaKeywords = [
+      'formül', 'alan formülü', 'hacim formülü', 'çevre formülü',
+      'pisagor', 'öklid', 'teorem'
+    ];
+    
+    const formulaCount = formulaKeywords.filter(keyword => textLower.includes(keyword)).length;
+    if (formulaCount > 0) {
+      operationComplexity += formulaCount * 1.5;
+      solutionSteps += formulaCount * 1;
+    }
+
+    // ============================================
+    // 8. ÇOK ADIMLI PROBLEM ÇÖZME
+    // ============================================
+
+    // "Bulunuz", "Hesaplayınız" gibi ifadeler = çözüm adımı
+    const solveKeywords = /(bul|bulun|hesapla|hesaplayın|değerini bul|sonucu bul)/gi;
+    const solveCount = (text.match(solveKeywords) || []).length;
+    if (solveCount > 1) {
+      solutionSteps += solveCount * 1.5; // Birden fazla şey isteniyor = çok adımlı
+    }
+
+    // ============================================
+    // ZORLUK SEVİYESİ BELİRLEME
+    // Çözüm adımları ve işlem karmaşıklığına göre
+    // ============================================
+
+    // Toplam zorluk skoru
+    const totalScore = solutionSteps + operationComplexity + reasoningRequired;
+
+    // ZOR: Çok adımlı çözüm + karmaşık işlemler + akıl yürütme
+    if (totalScore >= 12 || (solutionSteps >= 6 && operationComplexity >= 4)) {
+      return 'Zor';
+    }
+    // ORTA: Orta adımlı çözüm + orta karmaşıklık
+    else if (totalScore >= 6 || (solutionSteps >= 3 && operationComplexity >= 2)) {
+      return 'Orta';
+    }
+    // KOLAY: Az adımlı çözüm + basit işlemler
+    else if (totalScore >= 2 || solutionSteps >= 1) {
+      return 'Kolay';
+    }
+    else {
+      return 'Kolay';
     }
   };
 
@@ -190,16 +434,20 @@ export default function App() {
             const topicGuess = nameWithoutExt.split(/[-_]/)[0].trim();
             const newId = Math.random().toString(36).substr(2, 9);
 
+            // Metin dosyası için zorluk analizi yap
+            const difficulty = analyzeDifficulty(textContent);
+
             newImages.push({
               id: newId,
               filename: file.name,
               topic: topicGuess,
               src: '', // Txt dosyaları için görsel yok
               text: textContent,
+              difficulty: difficulty, // Zorluk derecesi
               createdAt: Date.now()
             });
           } else {
-            // Görsel dosyası ise normal işlem - OCR yapmadan direkt ekle
+            // Görsel dosyası ise normal işlem - OCR yapıp zorluk analizi yap
             const dataUrl = await readFileAsDataURL(file);
             const compressedSrc = await compressImage(dataUrl);
 
@@ -212,13 +460,26 @@ export default function App() {
             const topicGuess = nameWithoutExt.split(/[-_]/)[0].trim();
             const newId = Math.random().toString(36).substr(2, 9);
 
-            // OCR yapmadan direkt görseli ekle
+            // OCR ile metni çıkar ve zorluk analizi yap
+            let extractedText = '';
+            let difficulty = 'Bilinmiyor';
+            try {
+              extractedText = await extractTextFromImage(compressedSrc);
+              if (extractedText && extractedText.trim().length > 0) {
+                difficulty = analyzeDifficulty(extractedText);
+              }
+            } catch (error) {
+              console.error('OCR veya zorluk analizi hatası:', error);
+            }
+
+            // Görseli ekle (OCR metni ve zorluk derecesi ile)
             newImages.push({
               id: newId,
               filename: file.name,
               topic: topicGuess,
               src: compressedSrc,
-              text: '', // OCR yapılmıyor, görsel direkt kullanılacak
+              text: extractedText, // OCR metni
+              difficulty: difficulty, // Zorluk derecesi
               createdAt: Date.now()
             });
           }
@@ -998,7 +1259,7 @@ export default function App() {
                 <div className="absolute inset-0 bg-white/80 rounded-xl flex flex-col items-center justify-center z-10 backdrop-blur-sm">
                   <Loader2 size={36} className="text-blue-600 animate-spin mb-3" />
                   <p className="font-medium text-blue-800">Sorular işleniyor ve kaydediliyor...</p>
-                  <p className="text-xs text-blue-600/80 mt-1">Resimler sıkıştırılıyor...</p>
+                  <p className="text-xs text-blue-600/80 mt-1">Resimler sıkıştırılıyor ve zorluk analizi yapılıyor...</p>
                 </div>
               )}
 
@@ -1069,6 +1330,18 @@ export default function App() {
                             className="w-full text-sm px-2 py-1.5 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                             placeholder="Konu girin..."
                           />
+                        </div>
+                        {/* Zorluk Derecesi */}
+                        <div className="mt-2">
+                          <label className="text-xs font-medium text-gray-600 mb-1 block">Zorluk Derecesi:</label>
+                          <div className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold ${
+                            img.difficulty === 'Zor' ? 'bg-red-100 text-red-700 border border-red-200' :
+                            img.difficulty === 'Orta' ? 'bg-yellow-100 text-yellow-700 border border-yellow-200' :
+                            img.difficulty === 'Kolay' ? 'bg-green-100 text-green-700 border border-green-200' :
+                            'bg-gray-100 text-gray-600 border border-gray-200'
+                          }`}>
+                            {img.difficulty || 'Bilinmiyor'}
+                          </div>
                         </div>
                       </div>
                     </div>
