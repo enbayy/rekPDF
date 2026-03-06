@@ -1355,33 +1355,10 @@ export default function App() {
         {/* TAB 2: ÖĞRENCİ VERİSİ */}
         {activeTab === 'data' && (
           <div className="p-4 md:p-8 max-w-5xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
+            <div className="mb-6">
               <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                 <Users className="text-blue-600" /> Öğrenci ve Eksik Konu Verileri
               </h2>
-              
-              {/* Toplu PDF İndirme Butonu - Üst Kısım */}
-              {students.length > 0 && (
-                <button
-                  onClick={handleDownloadAllPDFs}
-                  disabled={students.length === 0 || isGeneratingAllPDFs || images.length === 0}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors shadow-sm"
-                >
-                  {isGeneratingAllPDFs ? (
-                    <>
-                      <Loader2 size={18} className="animate-spin" />
-                      <span className="text-sm">
-                        PDF Oluşturuluyor... ({pdfGenerationProgress.current}/{pdfGenerationProgress.total})
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <Download size={18} />
-                      <span className="text-sm">Tüm Öğrenciler için PDF İndir</span>
-                    </>
-                  )}
-                </button>
-              )}
             </div>
 
             {/* İlerleme Çubuğu */}
